@@ -1,5 +1,7 @@
+import { Box } from "@chakra-ui/react";
+
 function App() {
-  return <></>;
+  return <Box></Box>;
 }
 
 export default App;
