@@ -1,4 +1,13 @@
-import { Box, Button, Grid, Heading, HStack, Stack, Text, VStack } from "@chakra-ui/react";
+import {
+  Box,
+  Button,
+  Grid,
+  Heading,
+  HStack,
+  Stack,
+  Text,
+  VStack,
+} from "@chakra-ui/react";
 import { useMemo, useState } from "react";
 
 const BOARD_SIZE = 13;
@@ -7,15 +16,15 @@ const HUNTER_COLUMNS = [2, 3, 4, 5, 7, 8, 9, 10] as const;
 const TERRAIN_ROWS = [
   "WWLLLLLLLLLWW",
   "WWLLLLLLLLLWW",
-  "WWLLLLLLWLLWW",
-  "WWWLLLLWWWWWW",
+  "WWLLLLLLWWLWW",
+  "WWWLLLWWWWWWW",
   "LWWWWWWWWWWWL",
   "LLWWLLLLLWWLL",
-  "LLWWLLLLLWWLL",
+  "LLLWLLLLLWLLL",
   "LLWWLLLLLWWLL",
   "LWWWWWWWWWWWL",
-  "WWWWWWLLLLWWW",
-  "WWLLWLLLLLLWW",
+  "WWWWWWWLLLWWW",
+  "WWLWWLLLLLLWW",
   "WWLLLLLLLLLWW",
   "WWLLLLLLLLLWW",
 ] as const;
@@ -29,17 +38,6 @@ const CARDINAL_DIRECTIONS = [
   { row: 1, col: 0 },
   { row: 0, col: -1 },
   { row: 0, col: 1 },
-] as const;
-
-const ALL_DIRECTIONS = [
-  { row: -1, col: -1 },
-  { row: -1, col: 0 },
-  { row: -1, col: 1 },
-  { row: 0, col: -1 },
-  { row: 0, col: 1 },
-  { row: 1, col: -1 },
-  { row: 1, col: 0 },
-  { row: 1, col: 1 },
 ] as const;
 
 const PLAYER_LABELS = {
@@ -118,23 +116,17 @@ const otherPlayer = (player: Player): Player =>
   player === "left" ? "right" : "left";
 
 const isAdjacent = (first: Position, second: Position) =>
-  Math.max(Math.abs(first.row - second.row), Math.abs(first.col - second.col)) === 1;
+  Math.max(
+    Math.abs(first.row - second.row),
+    Math.abs(first.col - second.col)
+  ) === 1;
 
 const formatSquare = (position: Position) =>
   `${COLUMN_LABELS[position.col]}${position.row + 1}`;
 
-const getShipFootprint = (kind: ShipKind, position: Position): Position[] => {
-  if (kind === "chiefship") {
-    return [position];
-  }
-
-  return [
-    position,
-    { row: position.row, col: position.col + 1 },
-    { row: position.row + 1, col: position.col },
-    { row: position.row + 1, col: position.col + 1 },
-  ];
-};
+const getShipFootprint = (_kind: ShipKind, position: Position): Position[] => [
+  position,
+];
 
 const getPieceController = (piece: Piece, state: GameState): Player | null => {
   if (piece.kind === "dragon") {
@@ -151,7 +143,9 @@ const getShipAt = (state: GameState, position: Position, excludedId?: string) =>
   state.ships.find(
     (ship) =>
       ship.id !== excludedId &&
-      getShipFootprint(ship.kind, ship.position).some((cell) => positionsMatch(cell, position))
+      getShipFootprint(ship.kind, ship.position).some((cell) =>
+        positionsMatch(cell, position)
+      )
   );
 
 const getGroundMaceAt = (state: GameState, position: Position) =>
@@ -160,12 +154,16 @@ const getGroundMaceAt = (state: GameState, position: Position) =>
   );
 
 const hasTraitorToken = (state: GameState, position: Position) =>
-  state.traitorTokenPosition !== null && positionsMatch(state.traitorTokenPosition, position);
+  state.traitorTokenPosition !== null &&
+  positionsMatch(state.traitorTokenPosition, position);
 
 const getChief = (state: GameState, owner: Player) =>
   state.pieces.find((piece) => piece.kind === "chief" && piece.owner === owner);
 
-const getOccupierOwnerAt = (state: GameState, position: Position): Player | null => {
+const getOccupierOwnerAt = (
+  state: GameState,
+  position: Position
+): Player | null => {
   const piece = getPieceAt(state, position);
 
   if (piece) {
@@ -249,10 +247,28 @@ const createInitialPieces = (): Piece[] => {
   }));
 
   return [
-    { id: "left-chief", kind: "chief", owner: "left", position: { row: 0, col: 6 }, carriesMace: false },
+    {
+      id: "left-chief",
+      kind: "chief",
+      owner: "left",
+      position: { row: 0, col: 6 },
+      carriesMace: false,
+    },
     ...leftHunters,
-    { id: "dragon", kind: "dragon", owner: null, position: { row: 6, col: 1 }, carriesMace: false },
-    { id: "right-chief", kind: "chief", owner: "right", position: { row: 12, col: 6 }, carriesMace: false },
+    {
+      id: "dragon",
+      kind: "dragon",
+      owner: null,
+      position: { row: 6, col: 0 },
+      carriesMace: false,
+    },
+    {
+      id: "right-chief",
+      kind: "chief",
+      owner: "right",
+      position: { row: 12, col: 6 },
+      carriesMace: false,
+    },
     ...rightHunters,
   ];
 };
@@ -260,10 +276,30 @@ const createInitialPieces = (): Piece[] => {
 const createInitialGameState = (): GameState => ({
   pieces: createInitialPieces(),
   ships: [
-    { id: "left-longship", kind: "longship", owner: "left", position: { row: 3, col: 7 } },
-    { id: "left-chiefship", kind: "chiefship", owner: "left", position: { row: 2, col: 8 } },
-    { id: "right-longship", kind: "longship", owner: "right", position: { row: 8, col: 4 } },
-    { id: "right-chiefship", kind: "chiefship", owner: "right", position: { row: 10, col: 4 } },
+    {
+      id: "left-longship",
+      kind: "longship",
+      owner: "left",
+      position: { row: 2, col: 9 },
+    },
+    {
+      id: "left-chiefship",
+      kind: "chiefship",
+      owner: "left",
+      position: { row: 2, col: 8 },
+    },
+    {
+      id: "right-longship",
+      kind: "longship",
+      owner: "right",
+      position: { row: 10, col: 3 },
+    },
+    {
+      id: "right-chiefship",
+      kind: "chiefship",
+      owner: "right",
+      position: { row: 10, col: 4 },
+    },
   ],
   maces: [
     { id: "left-mace", position: { row: 1, col: 6 }, carriedBy: null },
@@ -271,7 +307,7 @@ const createInitialGameState = (): GameState => ({
   ],
   currentTurn: "left",
   dragonController: null,
-  traitorTokenPosition: { row: 6, col: 11 },
+  traitorTokenPosition: { row: 6, col: 12 },
   traitorClaimedBy: null,
   traitorAbilityUsed: { left: false, right: false },
   winner: null,
@@ -304,7 +340,10 @@ const getHunterStyleMoves = (piece: Piece, state: GameState): Position[] => {
       const terrain = terrainMap[target.row][target.col] as Terrain;
       const ship = getShipAt(state, target);
 
-      if (terrain === "water" && ship?.kind !== "longship") {
+      if (
+        terrain === "water" &&
+        (!ship || ship.kind !== "longship" || ship.owner !== piece.owner)
+      ) {
         break;
       }
 
@@ -323,7 +362,7 @@ const getChiefMoves = (piece: Piece, state: GameState): Position[] => {
     return [];
   }
 
-  return ALL_DIRECTIONS.flatMap((direction) => {
+  return CARDINAL_DIRECTIONS.flatMap((direction) => {
     const target = {
       row: piece.position.row + direction.row,
       col: piece.position.col + direction.col,
@@ -380,7 +419,10 @@ const getDragonMoves = (piece: Piece, state: GameState): Position[] => {
         continue;
       }
 
-      if (targetPiece.kind === "hunter" && targetPiece.owner === otherPlayer(controller)) {
+      if (
+        targetPiece.kind === "hunter" &&
+        targetPiece.owner === otherPlayer(controller)
+      ) {
         validMoves.push(target);
       }
     }
@@ -402,7 +444,9 @@ const getPieceMoves = (piece: Piece, state: GameState): Position[] => {
 };
 
 const getShipMoves = (ship: Ship, state: GameState): Position[] => {
-  const occupied = getShipFootprint(ship.kind, ship.position).some((cell) => getPieceAt(state, cell));
+  const occupied = getShipFootprint(ship.kind, ship.position).some((cell) =>
+    getPieceAt(state, cell)
+  );
 
   if (occupied) {
     return [];
@@ -476,45 +520,57 @@ const capturePieces = (state: GameState, pieceIds: string[]): GameState => {
   };
 };
 
-const applySandwichCaptures = (
-  state: GameState,
-  actingOwner: Player,
-  originSquares: Position[]
-) => {
+const applySandwichCaptures = (state: GameState) => {
   const capturedIds = new Set<string>();
 
-  for (const origin of originSquares) {
-    for (const direction of CARDINAL_DIRECTIONS) {
-      const line: Piece[] = [];
-      let distance = 1;
+  for (const owner of ["left", "right"] as const) {
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        const start = { row, col };
 
-      while (true) {
-        const target = {
-          row: origin.row + direction.row * distance,
-          col: origin.col + direction.col * distance,
-        };
-
-        if (!isInBounds(target.row, target.col)) {
-          break;
-        }
-
-        const piece = getPieceAt(state, target);
-
-        if (
-          piece &&
-          canBeSandwichCaptured(piece) &&
-          getPieceController(piece, state) === otherPlayer(actingOwner)
-        ) {
-          line.push(piece);
-          distance += 1;
+        if (getOccupierOwnerAt(state, start) !== owner) {
           continue;
         }
 
-        if (line.length > 0 && getOccupierOwnerAt(state, target) === actingOwner) {
-          line.forEach((captured) => capturedIds.add(captured.id));
-        }
+        for (const direction of [
+          { row: 0, col: 1 },
+          { row: 1, col: 0 },
+        ]) {
+          const line: Piece[] = [];
+          let distance = 1;
 
-        break;
+          while (true) {
+            const target = {
+              row: start.row + direction.row * distance,
+              col: start.col + direction.col * distance,
+            };
+
+            if (!isInBounds(target.row, target.col)) {
+              break;
+            }
+
+            const piece = getPieceAt(state, target);
+
+            if (
+              piece &&
+              canBeSandwichCaptured(piece) &&
+              getPieceController(piece, state) === otherPlayer(owner)
+            ) {
+              line.push(piece);
+              distance += 1;
+              continue;
+            }
+
+            if (
+              line.length > 0 &&
+              getOccupierOwnerAt(state, target) === owner
+            ) {
+              line.forEach((captured) => capturedIds.add(captured.id));
+            }
+
+            break;
+          }
+        }
       }
     }
   }
@@ -527,14 +583,21 @@ const applySandwichCaptures = (
   };
 };
 
-const syncCarriedMace = (state: GameState, pieceId: string, position: Position): GameState => ({
+const syncCarriedMace = (
+  state: GameState,
+  pieceId: string,
+  position: Position
+): GameState => ({
   ...state,
   maces: state.maces.map((mace) =>
     mace.carriedBy === pieceId ? { ...mace, position } : mace
   ),
 });
 
-const givePieceGroundMace = (state: GameState, pieceId: string): { state: GameState; pickedUp: boolean } => {
+const givePieceGroundMace = (
+  state: GameState,
+  pieceId: string
+): { state: GameState; pickedUp: boolean } => {
   const piece = state.pieces.find((candidate) => candidate.id === pieceId);
 
   if (!piece || (piece.kind !== "hunter" && piece.kind !== "traitor")) {
@@ -542,7 +605,10 @@ const givePieceGroundMace = (state: GameState, pieceId: string): { state: GameSt
   }
 
   if (piece.carriesMace) {
-    return { state: syncCarriedMace(state, pieceId, piece.position), pickedUp: false };
+    return {
+      state: syncCarriedMace(state, pieceId, piece.position),
+      pickedUp: false,
+    };
   }
 
   const groundMace = getGroundMaceAt(state, piece.position);
@@ -556,7 +622,9 @@ const givePieceGroundMace = (state: GameState, pieceId: string): { state: GameSt
     state: {
       ...state,
       pieces: state.pieces.map((candidate) =>
-        candidate.id === pieceId ? { ...candidate, carriesMace: true } : candidate
+        candidate.id === pieceId
+          ? { ...candidate, carriesMace: true }
+          : candidate
       ),
       maces: state.maces.map((mace) =>
         mace.id === groundMace.id
@@ -572,7 +640,12 @@ const applyChiefClaims = (state: GameState, chief: Piece) => {
   const owner = chief.owner;
   const dragon = state.pieces.find((piece) => piece.kind === "dragon");
 
-  if (owner && dragon && isAdjacent(chief.position, dragon.position) && state.dragonController !== owner) {
+  if (
+    owner &&
+    dragon &&
+    isAdjacent(chief.position, dragon.position) &&
+    state.dragonController !== owner
+  ) {
     nextState = {
       ...nextState,
       dragonController: owner,
@@ -580,7 +653,11 @@ const applyChiefClaims = (state: GameState, chief: Piece) => {
     notes.push(`The Dragon now answers to ${PLAYER_LABELS[owner]}.`);
   }
 
-  if (owner && nextState.traitorTokenPosition && isAdjacent(chief.position, nextState.traitorTokenPosition)) {
+  if (
+    owner &&
+    nextState.traitorTokenPosition &&
+    isAdjacent(chief.position, nextState.traitorTokenPosition)
+  ) {
     nextState = {
       ...nextState,
       traitorClaimedBy: owner,
@@ -592,8 +669,15 @@ const applyChiefClaims = (state: GameState, chief: Piece) => {
   return { state: nextState, notes };
 };
 
-const checkMaceVictory = (state: GameState, piece: Piece, actingOwner: Player) => {
-  if ((piece.kind !== "hunter" && piece.kind !== "traitor") || !piece.carriesMace) {
+const checkMaceVictory = (
+  state: GameState,
+  piece: Piece,
+  actingOwner: Player
+) => {
+  if (
+    (piece.kind !== "hunter" && piece.kind !== "traitor") ||
+    !piece.carriesMace
+  ) {
     return null;
   }
 
@@ -608,7 +692,11 @@ const checkMaceVictory = (state: GameState, piece: Piece, actingOwner: Player) =
     : null;
 };
 
-const resolvePieceMove = (state: GameState, pieceId: string, target: Position) => {
+const resolvePieceMove = (
+  state: GameState,
+  pieceId: string,
+  target: Position
+) => {
   const movingPiece = state.pieces.find((piece) => piece.id === pieceId);
 
   if (!movingPiece) {
@@ -627,9 +715,17 @@ const resolvePieceMove = (state: GameState, pieceId: string, target: Position) =
   if (movingPiece.kind === "dragon") {
     const targetPiece = getPieceAt(nextState, target);
 
-    if (targetPiece && targetPiece.kind === "hunter" && targetPiece.owner === otherPlayer(actingOwner)) {
+    if (
+      targetPiece &&
+      targetPiece.kind === "hunter" &&
+      targetPiece.owner === otherPlayer(actingOwner)
+    ) {
       nextState = capturePieces(nextState, [targetPiece.id]);
-      notes.push(`The Dragon scorched ${PLAYER_LABELS[targetPiece.owner]} at ${formatSquare(target)}.`);
+      notes.push(
+        `The Dragon scorched ${
+          PLAYER_LABELS[targetPiece.owner]
+        } at ${formatSquare(target)}.`
+      );
     }
   }
 
@@ -663,7 +759,8 @@ const resolvePieceMove = (state: GameState, pieceId: string, target: Position) =
     const claimResult = applyChiefClaims(nextState, updatedPiece);
     nextState = claimResult.state;
     notes.push(...claimResult.notes);
-    updatedPiece = nextState.pieces.find((piece) => piece.id === pieceId) ?? updatedPiece;
+    updatedPiece =
+      nextState.pieces.find((piece) => piece.id === pieceId) ?? updatedPiece;
   }
 
   const victoryText = checkMaceVictory(nextState, updatedPiece, actingOwner);
@@ -676,23 +773,31 @@ const resolvePieceMove = (state: GameState, pieceId: string, target: Position) =
     };
   }
 
-  const captureResult = applySandwichCaptures(nextState, actingOwner, [target]);
+  const captureResult = applySandwichCaptures(nextState);
   nextState = captureResult.state;
 
   if (captureResult.captured.length > 0) {
     notes.push(
-      `${PLAYER_LABELS[actingOwner]} captured ${captureResult.captured.length} hunter${captureResult.captured.length === 1 ? "" : "s"}.`
+      `Sandwich captures removed ${captureResult.captured.length} piece${
+        captureResult.captured.length === 1 ? "" : "s"
+      }.`
     );
   }
 
   return {
     ...nextState,
     currentTurn: otherPlayer(actingOwner),
-    status: `${getPieceLabel(updatedPiece, nextState)} moved to ${formatSquare(target)}.${notes.length > 0 ? ` ${notes.join(" ")}` : ""}`,
+    status: `${getPieceLabel(updatedPiece, nextState)} moved to ${formatSquare(
+      target
+    )}.${notes.length > 0 ? ` ${notes.join(" ")}` : ""}`,
   };
 };
 
-const resolveShipMove = (state: GameState, shipId: string, target: Position) => {
+const resolveShipMove = (
+  state: GameState,
+  shipId: string,
+  target: Position
+) => {
   const ship = state.ships.find((candidate) => candidate.id === shipId);
 
   if (!ship) {
@@ -706,26 +811,32 @@ const resolveShipMove = (state: GameState, shipId: string, target: Position) => 
     ),
   };
 
-  const movedShip = nextState.ships.find((candidate) => candidate.id === shipId) ?? ship;
-  const captureResult = applySandwichCaptures(
-    nextState,
-    ship.owner,
-    getShipFootprint(movedShip.kind, movedShip.position)
-  );
+  const movedShip =
+    nextState.ships.find((candidate) => candidate.id === shipId) ?? ship;
+  const captureResult = applySandwichCaptures(nextState);
 
   nextState = captureResult.state;
 
   return {
     ...nextState,
     currentTurn: otherPlayer(ship.owner),
-    status: `${getShipLabel(movedShip)} sailed to ${formatSquare(target)}.${captureResult.captured.length > 0 ? ` ${PLAYER_LABELS[ship.owner]} captured ${captureResult.captured.length} hunter${captureResult.captured.length === 1 ? "" : "s"}.` : ""}`,
+    status: `${getShipLabel(movedShip)} sailed to ${formatSquare(target)}.${
+      captureResult.captured.length > 0
+        ? ` Sandwich captures removed ${captureResult.captured.length} piece${
+            captureResult.captured.length === 1 ? "" : "s"
+          }.`
+        : ""
+    }`,
   };
 };
 
 const resolveTraitorAbility = (state: GameState, targetHunterId: string) => {
   const actingOwner = state.currentTurn;
   const targetHunter = state.pieces.find(
-    (piece) => piece.id === targetHunterId && piece.kind === "hunter" && piece.owner === otherPlayer(actingOwner)
+    (piece) =>
+      piece.id === targetHunterId &&
+      piece.kind === "hunter" &&
+      piece.owner === otherPlayer(actingOwner)
   );
 
   if (!targetHunter) {
@@ -747,7 +858,11 @@ const resolveTraitorAbility = (state: GameState, targetHunterId: string) => {
     ),
     maces: state.maces.map((mace) =>
       mace.carriedBy === targetHunterId
-        ? { ...mace, carriedBy: "traitor-piece", position: targetHunter.position }
+        ? {
+            ...mace,
+            carriedBy: "traitor-piece",
+            position: targetHunter.position,
+          }
         : mace
     ),
     traitorAbilityUsed: {
@@ -756,18 +871,28 @@ const resolveTraitorAbility = (state: GameState, targetHunterId: string) => {
     },
   };
 
-  const captureResult = applySandwichCaptures(nextState, actingOwner, [targetHunter.position]);
+  const captureResult = applySandwichCaptures(nextState);
   nextState = captureResult.state;
 
   return {
     ...nextState,
     currentTurn: otherPlayer(actingOwner),
-    status: `${PLAYER_LABELS[actingOwner]} activated the Traitor at ${formatSquare(targetHunter.position)}.${captureResult.captured.length > 0 ? ` ${PLAYER_LABELS[actingOwner]} captured ${captureResult.captured.length} hunter${captureResult.captured.length === 1 ? "" : "s"}.` : ""}`,
+    status: `${
+      PLAYER_LABELS[actingOwner]
+    } activated the Traitor at ${formatSquare(targetHunter.position)}.${
+      captureResult.captured.length > 0
+        ? ` Sandwich captures removed ${captureResult.captured.length} piece${
+            captureResult.captured.length === 1 ? "" : "s"
+          }.`
+        : ""
+    }`,
   };
 };
 
 function App() {
-  const [gameState, setGameState] = useState<GameState>(() => createInitialGameState());
+  const [gameState, setGameState] = useState<GameState>(() =>
+    createInitialGameState()
+  );
   const [selection, setSelection] = useState<Selection | null>(null);
 
   const selectedPiece =
@@ -795,7 +920,8 @@ function App() {
       selection?.type === "traitorAbility"
         ? gameState.pieces.filter(
             (piece) =>
-              piece.kind === "hunter" && piece.owner === otherPlayer(gameState.currentTurn)
+              piece.kind === "hunter" &&
+              piece.owner === otherPlayer(gameState.currentTurn)
           )
         : [],
     [gameState, selection]
@@ -828,21 +954,28 @@ function App() {
   }, [selectedShip, shipTargets]);
 
   const traitorTargetMap = useMemo(
-    () => new Map(traitorTargets.map((piece) => [toPositionKey(piece.position), piece.id])),
+    () =>
+      new Map(
+        traitorTargets.map((piece) => [toPositionKey(piece.position), piece.id])
+      ),
     [traitorTargets]
   );
   const traitorAvailable =
     gameState.traitorClaimedBy === gameState.currentTurn &&
     !gameState.traitorAbilityUsed[gameState.currentTurn] &&
     gameState.pieces.some(
-      (piece) => piece.kind === "hunter" && piece.owner === otherPlayer(gameState.currentTurn)
+      (piece) =>
+        piece.kind === "hunter" &&
+        piece.owner === otherPlayer(gameState.currentTurn)
     );
 
   const dragonPiece = gameState.pieces.find((piece) => piece.kind === "dragon");
 
   const selectionHint = (() => {
     if (gameState.winner) {
-      return `${PLAYER_LABELS[gameState.winner]} won the match. Reset to play the setup again.`;
+      return `${
+        PLAYER_LABELS[gameState.winner]
+      } won the match. Reset to play the setup again.`;
     }
 
     if (selection?.type === "traitorAbility") {
@@ -850,7 +983,7 @@ function App() {
     }
 
     if (selectedShip?.kind === "longship") {
-      return "Click a highlighted anchor square to slide the 2x2 longship.";
+      return "Click a highlighted water square to move the Longship.";
     }
 
     if (selectedShip?.kind === "chiefship") {
@@ -858,7 +991,9 @@ function App() {
     }
 
     if (selectedPiece) {
-      return `Click a highlighted square to move the ${getPieceRoleLabel(selectedPiece).toLowerCase()}.`;
+      return `Click a highlighted square to move the ${getPieceRoleLabel(
+        selectedPiece
+      ).toLowerCase()}.`;
     }
 
     if (traitorAvailable) {
@@ -916,20 +1051,26 @@ function App() {
       const targetHunterId = traitorTargetMap.get(positionKey);
 
       if (targetHunterId) {
-        setGameState((current) => resolveTraitorAbility(current, targetHunterId));
+        setGameState((current) =>
+          resolveTraitorAbility(current, targetHunterId)
+        );
         setSelection(null);
         return;
       }
     }
 
     if (selection?.type === "piece" && pieceTargetKeys.has(positionKey)) {
-      setGameState((current) => resolvePieceMove(current, selection.id, position));
+      setGameState((current) =>
+        resolvePieceMove(current, selection.id, position)
+      );
       setSelection(null);
       return;
     }
 
     if (selection?.type === "ship" && shipTargetKeys.has(positionKey)) {
-      setGameState((current) => resolveShipMove(current, selection.id, position));
+      setGameState((current) =>
+        resolveShipMove(current, selection.id, position)
+      );
       setSelection(null);
       return;
     }
@@ -946,7 +1087,11 @@ function App() {
       return;
     }
 
-    if (!clickedPiece && clickedShip && isSelectableShip(clickedShip, gameState)) {
+    if (
+      !clickedPiece &&
+      clickedShip &&
+      isSelectableShip(clickedShip, gameState)
+    ) {
       setSelection((current) =>
         current?.type === "ship" && current.id === clickedShip.id
           ? null
@@ -1007,10 +1152,14 @@ function App() {
               >
                 Opening rules prototype
               </Heading>
-              <Text maxW="760px" fontSize={{ base: "sm", md: "md" }} color="var(--ink-soft)">
-                The full opening setup is on the board now: Chiefs, Hunters, ships, Maces,
-                the Dragon, and the Traitor. Win by moving a Mace-bearer adjacent to the
-                enemy Chief.
+              <Text
+                maxW="760px"
+                fontSize={{ base: "sm", md: "md" }}
+                color="var(--ink-soft)"
+              >
+                The full opening setup is on the board now: Chiefs, Hunters,
+                ships, Maces, the Dragon, and the Traitor. Win by moving a
+                Mace-bearer adjacent to the enemy Chief.
               </Text>
             </VStack>
 
@@ -1023,10 +1172,19 @@ function App() {
               borderRadius="20px"
               p={4}
             >
-              <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.18em" color="#705633">
+              <Text
+                fontSize="xs"
+                textTransform="uppercase"
+                letterSpacing="0.18em"
+                color="#705633"
+              >
                 Turn
               </Text>
-              <Text fontSize="xl" fontWeight="800" color={PLAYER_COLORS[gameState.currentTurn]}>
+              <Text
+                fontSize="xl"
+                fontWeight="800"
+                color={PLAYER_COLORS[gameState.currentTurn]}
+              >
                 {gameState.winner
                   ? `${PLAYER_LABELS[gameState.winner]} Won`
                   : PLAYER_LABELS[gameState.currentTurn]}
@@ -1047,7 +1205,11 @@ function App() {
               <Text>Water</Text>
             </HStack>
             <HStack gap={2}>
-              <Box boxSize="14px" borderRadius="4px" bg="rgba(143, 45, 24, 0.42)" />
+              <Box
+                boxSize="14px"
+                borderRadius="4px"
+                bg="rgba(143, 45, 24, 0.42)"
+              />
               <Text>Ship squares</Text>
             </HStack>
             <HStack gap={2}>
@@ -1068,9 +1230,14 @@ function App() {
               bg={selection?.type === "traitorAbility" ? "#f0b66a" : "#eedbb3"}
               color="#3b2814"
               border="1px solid rgba(86, 60, 32, 0.2)"
-              _hover={{ bg: selection?.type === "traitorAbility" ? "#ecaa54" : "#e8d0a0" }}
+              _hover={{
+                bg:
+                  selection?.type === "traitorAbility" ? "#ecaa54" : "#e8d0a0",
+              }}
             >
-              {selection?.type === "traitorAbility" ? "Cancel Traitor" : "Activate Traitor"}
+              {selection?.type === "traitorAbility"
+                ? "Cancel Traitor"
+                : "Activate Traitor"}
             </Button>
             <Button
               onClick={handleReset}
@@ -1093,7 +1260,11 @@ function App() {
           overflowX="auto"
         >
           <Box minW="fit-content" mx="auto">
-            <Grid templateColumns={`36px repeat(${BOARD_SIZE}, 42px)`} gap={2} alignItems="center">
+            <Grid
+              templateColumns={`36px repeat(${BOARD_SIZE}, 42px)`}
+              gap={2}
+              alignItems="center"
+            >
               <Box />
               {COLUMN_LABELS.map((label) => (
                 <Text
@@ -1139,34 +1310,41 @@ function App() {
                         isShipTarget ||
                         isTraitorTarget ||
                         (piece ? isSelectablePiece(piece, gameState) : false) ||
-                        (!piece && ship ? isSelectableShip(ship, gameState) : false));
+                        (!piece && ship
+                          ? isSelectableShip(ship, gameState)
+                          : false));
 
-                    const pieceOwner = piece ? getPieceController(piece, gameState) : null;
+                    const pieceOwner = piece
+                      ? getPieceController(piece, gameState)
+                      : null;
                     const pieceColor =
                       piece?.kind === "dragon"
                         ? pieceOwner
                           ? PLAYER_COLORS[pieceOwner]
                           : "#6b572a"
                         : pieceOwner
-                          ? PLAYER_COLORS[pieceOwner]
-                          : "#5c4a32";
+                        ? PLAYER_COLORS[pieceOwner]
+                        : "#5c4a32";
 
-                    const cellBorderColor = isSelectedPiece || isSelectedShip
-                      ? "var(--highlight)"
-                      : isTraitorTarget
+                    const cellBorderColor =
+                      isSelectedPiece || isSelectedShip
+                        ? "var(--highlight)"
+                        : isTraitorTarget
                         ? "#f0b66a"
                         : isShipTarget
-                          ? "#f5dd63"
-                          : isPieceTarget
-                            ? "rgba(245, 221, 99, 0.85)"
-                            : "rgba(255, 244, 219, 0.12)";
+                        ? "#f5dd63"
+                        : isPieceTarget
+                        ? "rgba(245, 221, 99, 0.85)"
+                        : "rgba(255, 244, 219, 0.12)";
 
                     return (
                       <Box
                         key={key}
                         as="button"
                         onClick={() => handleSquareClick(rowIndex, colIndex)}
-                        aria-label={`Square ${COLUMN_LABELS[colIndex]}${rowIndex + 1}, ${terrain}`}
+                        aria-label={`Square ${COLUMN_LABELS[colIndex]}${
+                          rowIndex + 1
+                        }, ${terrain}`}
                         position="relative"
                         display="flex"
                         alignItems="center"
@@ -1186,10 +1364,10 @@ function App() {
                           isSelectedPiece || isSelectedShip
                             ? "0 0 0 3px rgba(245, 221, 99, 0.18), inset 0 0 0 1px rgba(255, 251, 227, 0.3)"
                             : isTraitorTarget
-                              ? "0 0 0 3px rgba(240, 182, 106, 0.22)"
-                              : isPieceTarget || isShipTarget
-                                ? "0 0 0 3px rgba(245, 221, 99, 0.14)"
-                                : "inset 0 1px 0 rgba(255, 245, 218, 0.2)"
+                            ? "0 0 0 3px rgba(240, 182, 106, 0.22)"
+                            : isPieceTarget || isShipTarget
+                            ? "0 0 0 3px rgba(245, 221, 99, 0.14)"
+                            : "inset 0 1px 0 rgba(255, 245, 218, 0.2)"
                         }
                         _hover={
                           clickable
@@ -1208,7 +1386,9 @@ function App() {
                           <Box
                             position="absolute"
                             inset="4px"
-                            borderRadius={ship.kind === "chiefship" ? "999px" : "10px"}
+                            borderRadius={
+                              ship.kind === "chiefship" ? "999px" : "10px"
+                            }
                             bg={
                               ship.kind === "chiefship"
                                 ? `${PLAYER_COLORS[ship.owner]}cc`
@@ -1305,12 +1485,18 @@ function App() {
                             display="grid"
                             placeItems="center"
                             boxSize={piece.kind === "chief" ? "31px" : "29px"}
-                            borderRadius={piece.kind === "chief" ? "10px" : "999px"}
+                            borderRadius={
+                              piece.kind === "chief" ? "10px" : "999px"
+                            }
                             bg={pieceColor}
                             color="#fff7e7"
                             fontWeight="900"
                             fontSize="lg"
-                            border={piece.kind === "dragon" ? "2px solid #f1ca5e" : "2px solid #f7efdb"}
+                            border={
+                              piece.kind === "dragon"
+                                ? "2px solid #f1ca5e"
+                                : "2px solid #f7efdb"
+                            }
                             boxShadow="0 10px 18px rgba(50, 17, 8, 0.35)"
                           >
                             {getPieceMarker(piece)}
@@ -1343,7 +1529,11 @@ function App() {
           </Box>
         </Box>
 
-        <Stack direction={{ base: "column", lg: "row" }} gap={4} align="stretch">
+        <Stack
+          direction={{ base: "column", lg: "row" }}
+          gap={4}
+          align="stretch"
+        >
           <VStack
             flex={1}
             align="stretch"
@@ -1354,7 +1544,12 @@ function App() {
             borderRadius="24px"
             p={5}
           >
-            <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.18em" color="#705633">
+            <Text
+              fontSize="xs"
+              textTransform="uppercase"
+              letterSpacing="0.18em"
+              color="#705633"
+            >
               Top Fleet
             </Text>
             <Text fontSize="2xl" fontWeight="800" color={PLAYER_COLORS.left}>
@@ -1364,10 +1559,18 @@ function App() {
               Mace bearers: {leftStats.maceBearers}
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Dragon control: {gameState.dragonController === "left" ? "Yes" : "No"}
+              Dragon control:{" "}
+              {gameState.dragonController === "left" ? "Yes" : "No"}
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Traitor: {leftStats.hasTraitorPiece ? "On the board" : gameState.traitorClaimedBy === "left" ? gameState.traitorAbilityUsed.left ? "Claimed and spent" : "Claimed and ready" : "Unclaimed"}
+              Traitor:{" "}
+              {leftStats.hasTraitorPiece
+                ? "On the board"
+                : gameState.traitorClaimedBy === "left"
+                ? gameState.traitorAbilityUsed.left
+                  ? "Claimed and spent"
+                  : "Claimed and ready"
+                : "Unclaimed"}
             </Text>
           </VStack>
 
@@ -1381,24 +1584,37 @@ function App() {
             borderRadius="24px"
             p={5}
           >
-            <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.18em" color="#705633">
+            <Text
+              fontSize="xs"
+              textTransform="uppercase"
+              letterSpacing="0.18em"
+              color="#705633"
+            >
               Board Notes
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Hunters and the Traitor move like rooks, Chiefs move one square in any direction,
-              and the Dragon moves up to three squares horizontally or vertically.
+              Hunters and the Traitor move like rooks, Chiefs move one square in
+              orthogonally, and the Dragon moves up to three squares
+              horizontally or vertically.
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Longships and Chiefships move only on water. Hunters may cross water only on
-              Longships, while Chiefs may stand on water only by using their own Chiefship.
+              Longships and Chiefships move only on water, and every ship now
+              occupies one square. Hunters may cross water only on friendly
+              Longships, while Chiefs may stand on water only by using their own
+              Chiefship.
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              The Dragon starts on {dragonPiece ? formatSquare(dragonPiece.position) : "the board"}.
-              The Traitor begins at {gameState.traitorTokenPosition ? formatSquare(gameState.traitorTokenPosition) : "a claimed position"}.
+              The Dragon starts on{" "}
+              {dragonPiece ? formatSquare(dragonPiece.position) : "the board"}.
+              The Traitor begins at{" "}
+              {gameState.traitorTokenPosition
+                ? formatSquare(gameState.traitorTokenPosition)
+                : "a claimed position"}
+              .
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Sandwich captures remove Hunters and the Traitor in continuous horizontal or vertical
-              lines between two enemy-controlled squares.
+              Sandwich captures remove Hunters and the Traitor in continuous
+              horizontal or vertical lines between two enemy-controlled squares.
             </Text>
           </VStack>
 
@@ -1412,7 +1628,12 @@ function App() {
             borderRadius="24px"
             p={5}
           >
-            <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.18em" color="#705633">
+            <Text
+              fontSize="xs"
+              textTransform="uppercase"
+              letterSpacing="0.18em"
+              color="#705633"
+            >
               Bottom Fleet
             </Text>
             <Text fontSize="2xl" fontWeight="800" color={PLAYER_COLORS.right}>
@@ -1422,10 +1643,18 @@ function App() {
               Mace bearers: {rightStats.maceBearers}
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Dragon control: {gameState.dragonController === "right" ? "Yes" : "No"}
+              Dragon control:{" "}
+              {gameState.dragonController === "right" ? "Yes" : "No"}
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
-              Traitor: {rightStats.hasTraitorPiece ? "On the board" : gameState.traitorClaimedBy === "right" ? gameState.traitorAbilityUsed.right ? "Claimed and spent" : "Claimed and ready" : "Unclaimed"}
+              Traitor:{" "}
+              {rightStats.hasTraitorPiece
+                ? "On the board"
+                : gameState.traitorClaimedBy === "right"
+                ? gameState.traitorAbilityUsed.right
+                  ? "Claimed and spent"
+                  : "Claimed and ready"
+                : "Unclaimed"}
             </Text>
           </VStack>
         </Stack>
