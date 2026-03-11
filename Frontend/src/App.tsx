@@ -160,18 +160,13 @@ const hasTraitorToken = (state: GameState, position: Position) =>
 const getChief = (state: GameState, owner: Player) =>
   state.pieces.find((piece) => piece.kind === "chief" && piece.owner === owner);
 
-const getOccupierOwnerAt = (
+const getPieceControllerAt = (
   state: GameState,
   position: Position
 ): Player | null => {
   const piece = getPieceAt(state, position);
 
-  if (piece) {
-    return getPieceController(piece, state);
-  }
-
-  const ship = getShipAt(state, position);
-  return ship ? ship.owner : null;
+  return piece ? getPieceController(piece, state) : null;
 };
 
 const isSelectablePiece = (piece: Piece, state: GameState) =>
@@ -340,10 +335,7 @@ const getHunterStyleMoves = (piece: Piece, state: GameState): Position[] => {
       const terrain = terrainMap[target.row][target.col] as Terrain;
       const ship = getShipAt(state, target);
 
-      if (
-        terrain === "water" &&
-        (!ship || ship.kind !== "longship" || ship.owner !== piece.owner)
-      ) {
+      if (terrain === "water" && (!ship || ship.kind !== "longship")) {
         break;
       }
 
@@ -356,9 +348,7 @@ const getHunterStyleMoves = (piece: Piece, state: GameState): Position[] => {
 };
 
 const getChiefMoves = (piece: Piece, state: GameState): Position[] => {
-  const owner = piece.owner;
-
-  if (!owner) {
+  if (!piece.owner) {
     return [];
   }
 
@@ -379,7 +369,7 @@ const getChiefMoves = (piece: Piece, state: GameState): Position[] => {
     if (terrainMap[target.row][target.col] === "water") {
       const ship = getShipAt(state, target);
 
-      if (!ship || ship.kind !== "chiefship" || ship.owner !== owner) {
+      if (!ship || ship.kind !== "chiefship") {
         return [];
       }
     }
@@ -548,6 +538,42 @@ const capturePieces = (state: GameState, pieceIds: string[]): GameState => {
   };
 };
 
+const hasLShapeCaptureSupport = (
+  state: GameState,
+  position: Position,
+  owner: Player
+) =>
+  [
+    [
+      { row: -1, col: 0 },
+      { row: 0, col: -1 },
+    ],
+    [
+      { row: -1, col: 0 },
+      { row: 0, col: 1 },
+    ],
+    [
+      { row: 1, col: 0 },
+      { row: 0, col: -1 },
+    ],
+    [
+      { row: 1, col: 0 },
+      { row: 0, col: 1 },
+    ],
+  ].some((pair) =>
+    pair.every((offset) => {
+      const neighbor = {
+        row: position.row + offset.row,
+        col: position.col + offset.col,
+      };
+
+      return (
+        isInBounds(neighbor.row, neighbor.col) &&
+        getPieceControllerAt(state, neighbor) === owner
+      );
+    })
+  );
+
 const applySandwichCaptures = (state: GameState) => {
   const capturedIds = new Set<string>();
 
@@ -556,7 +582,7 @@ const applySandwichCaptures = (state: GameState) => {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
         const start = { row, col };
 
-        if (getOccupierOwnerAt(state, start) !== owner) {
+        if (getPieceControllerAt(state, start) !== owner) {
           continue;
         }
 
@@ -591,7 +617,7 @@ const applySandwichCaptures = (state: GameState) => {
 
             if (
               line.length > 0 &&
-              getOccupierOwnerAt(state, target) === owner
+              getPieceControllerAt(state, target) === owner
             ) {
               line.forEach((captured) => capturedIds.add(captured.id));
             }
@@ -602,49 +628,13 @@ const applySandwichCaptures = (state: GameState) => {
       }
     }
 
-    const chiefs = state.pieces.filter(
-      (piece) => piece.kind === "chief" && piece.owner === owner
-    );
-
-    for (const chief of chiefs) {
-      for (const direction of CARDINAL_DIRECTIONS) {
-        const target = {
-          row: chief.position.row + direction.row,
-          col: chief.position.col + direction.col,
-        };
-
-        if (!isInBounds(target.row, target.col)) {
-          continue;
-        }
-
-        const targetPiece = getPieceAt(state, target);
-
-        if (
-          !targetPiece ||
-          !canBeSandwichCaptured(targetPiece) ||
-          getPieceController(targetPiece, state) !== otherPlayer(owner)
-        ) {
-          continue;
-        }
-
-        const supportCount = CARDINAL_DIRECTIONS.reduce((count, offset) => {
-          const neighbor = {
-            row: target.row + offset.row,
-            col: target.col + offset.col,
-          };
-
-          if (!isInBounds(neighbor.row, neighbor.col)) {
-            return count;
-          }
-
-          return (
-            count + (getOccupierOwnerAt(state, neighbor) === owner ? 1 : 0)
-          );
-        }, 0);
-
-        if (supportCount >= 3) {
-          capturedIds.add(targetPiece.id);
-        }
+    for (const piece of state.pieces) {
+      if (
+        canBeSandwichCaptured(piece) &&
+        getPieceController(piece, state) === otherPlayer(owner) &&
+        hasLShapeCaptureSupport(state, piece.position, owner)
+      ) {
+        capturedIds.add(piece.id);
       }
     }
   }
@@ -704,6 +694,28 @@ const givePieceGroundMace = (
         mace.id === groundMace.id
           ? { ...mace, carriedBy: pieceId, position: piece.position }
           : mace
+      ),
+    },
+  };
+};
+
+const claimShipAt = (
+  state: GameState,
+  position: Position,
+  owner: Player
+): { state: GameState; claimedShip: Ship | null } => {
+  const ship = getShipAt(state, position);
+
+  if (!ship || ship.owner === owner) {
+    return { state, claimedShip: null };
+  }
+
+  return {
+    claimedShip: ship,
+    state: {
+      ...state,
+      ships: state.ships.map((candidate) =>
+        candidate.id === ship.id ? { ...candidate, owner } : candidate
       ),
     },
   };
@@ -811,6 +823,17 @@ const resolvePieceMove = (
   };
 
   nextState = syncCarriedMace(nextState, pieceId, target);
+
+  const shipClaimResult = claimShipAt(nextState, target, actingOwner);
+  nextState = shipClaimResult.state;
+
+  if (shipClaimResult.claimedShip) {
+    notes.push(
+      `${PLAYER_LABELS[actingOwner]} seized the ${getShipRoleLabel(
+        shipClaimResult.claimedShip
+      )} at ${formatSquare(target)}.`
+    );
+  }
 
   const pickupResult = givePieceGroundMace(nextState, pieceId);
   nextState = pickupResult.state;
@@ -1700,9 +1723,9 @@ function App() {
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
               Longships and Chiefships move only on water, and every ship now
-              occupies one square. Hunters may cross water only on friendly
-              Longships, while Chiefs may stand on water only by using their own
-              Chiefship.
+              occupies one square. Hunters may cross water only on Longships,
+              while Chiefs may stand on water only by using a Chiefship. Moving
+              onto an enemy ship seizes it for your side.
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
               The Dragon starts on{" "}
@@ -1715,7 +1738,8 @@ function App() {
             </Text>
             <Text fontSize="sm" color="var(--ink-soft)">
               Sandwich captures remove Hunters and the Traitor in continuous
-              horizontal or vertical lines between two enemy-controlled squares.
+              horizontal or vertical lines between two enemy-controlled pieces,
+              and those same pieces can also capture with an orthogonal L shape.
             </Text>
           </VStack>
 
