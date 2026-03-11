@@ -4,19 +4,19 @@ import { useMemo, useState } from "react";
 const BOARD_SIZE = 13;
 const COLUMN_LABELS = "ABCDEFGHIJKLM".split("");
 const TERRAIN_ROWS = [
-  "LLLLLLWLLLLLL",
-  "LLLWWLWLLLLLL",
-  "LLLLWLLLWLLLL",
-  "LWLLLLLLLWLLL",
-  "LWLLWWWLLLWLL",
-  "LLLWLWLLLLWLL",
-  "LLLWLWLLLWWLL",
-  "LLLWLLLWLLLLL",
-  "LLWWLLLWLLWLL",
-  "LLLLLLLWLLWLL",
-  "LWLLLLLLLWLLL",
-  "LLLWLLWLLLLLL",
-  "LLLLLLWLLLLLL",
+  "LLWWWWWWWWWLL",
+  "LLWWWWWWWWWLL",
+  "LLWWWWWWLWWLL",
+  "LLLWWWWLLLLLL",
+  "WLLLLLLLLLLLW",
+  "WWLLWWWWWLLWW",
+  "WWLLWWWWWLLWW",
+  "WWLLWWWWWLLWW",
+  "WLLLLLLLLLLLW",
+  "LLLLLLWWWWLLL",
+  "LLWLWWWWWWWLL",
+  "LLWWWWWWWWWLL",
+  "LLWWWWWWWWWLL",
 ] as const;
 
 type Terrain = "land" | "water";
@@ -62,7 +62,10 @@ const getValidMoves = (piece: Position): Position[] => {
 };
 
 function App() {
-  const [piecePosition, setPiecePosition] = useState<Position>({ row: 6, col: 5 });
+  const [piecePosition, setPiecePosition] = useState<Position>({
+    row: 6,
+    col: 5,
+  });
   const [selected, setSelected] = useState(false);
 
   const validMoves = useMemo(
@@ -79,7 +82,9 @@ function App() {
       return;
     }
 
-    const isValidMove = validMoves.some((move) => positionsMatch(move, clickedPosition));
+    const isValidMove = validMoves.some((move) =>
+      positionsMatch(move, clickedPosition)
+    );
 
     if (isValidMove) {
       setPiecePosition(clickedPosition);
@@ -137,9 +142,13 @@ function App() {
           >
             Chess-inspired movement demo
           </Heading>
-          <Text maxW="720px" fontSize={{ base: "sm", md: "md" }} color="#4e3b22">
-            Click the scout to reveal valid moves. It can step exactly one square in any
-            direction, but only onto land.
+          <Text
+            maxW="720px"
+            fontSize={{ base: "sm", md: "md" }}
+            color="#4e3b22"
+          >
+            Click the scout to reveal valid moves. It can step exactly one
+            square in any direction, but only onto land.
           </Text>
           <HStack gap={4} wrap="wrap" fontSize="sm" color="#4e3b22">
             <HStack gap={2}>
@@ -201,7 +210,10 @@ function App() {
 
                   {terrainRow.map((terrain, colIndex) => {
                     const tilePosition = { row: rowIndex, col: colIndex };
-                    const hasPiece = positionsMatch(tilePosition, piecePosition);
+                    const hasPiece = positionsMatch(
+                      tilePosition,
+                      piecePosition
+                    );
                     const isValidMove = validMoves.some((move) =>
                       positionsMatch(move, tilePosition)
                     );
@@ -213,7 +225,9 @@ function App() {
                         key={`${rowIndex}-${colIndex}`}
                         as="button"
                         onClick={() => handleSquareClick(rowIndex, colIndex)}
-                        aria-label={`Square ${COLUMN_LABELS[colIndex]}${rowIndex + 1}, ${terrain}`}
+                        aria-label={`Square ${COLUMN_LABELS[colIndex]}${
+                          rowIndex + 1
+                        }, ${terrain}`}
                         position="relative"
                         display="flex"
                         alignItems="center"
@@ -225,15 +239,17 @@ function App() {
                           isSelectedPiece
                             ? "var(--highlight)"
                             : isValidMove
-                              ? "rgba(245, 221, 99, 0.9)"
-                              : "rgba(255, 244, 219, 0.12)"
+                            ? "rgba(245, 221, 99, 0.9)"
+                            : "rgba(255, 244, 219, 0.12)"
                         }
                         bg={
                           isWater
                             ? "linear-gradient(145deg, var(--water-light), var(--water-dark))"
                             : "linear-gradient(145deg, var(--land-light), var(--land-dark))"
                         }
-                        cursor={isWater && !hasPiece ? "not-allowed" : "pointer"}
+                        cursor={
+                          isWater && !hasPiece ? "not-allowed" : "pointer"
+                        }
                         transition="transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease"
                         boxShadow={
                           isValidMove
@@ -290,6 +306,3 @@ function App() {
 }
 
 export default App;
-
-
-
