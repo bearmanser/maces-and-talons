@@ -20,6 +20,7 @@ type GameBoardProps = {
   shipTargetKeys: Set<string>;
   shipFootprintKeys: Set<string>;
   traitorTargetKeys: Set<string>;
+  canInteract: boolean;
   onSquareClick: (row: number, col: number) => void;
 };
 
@@ -30,6 +31,7 @@ export function GameBoard({
   shipTargetKeys,
   shipFootprintKeys,
   traitorTargetKeys,
+  canInteract,
   onSquareClick,
 }: GameBoardProps) {
   return (
@@ -86,6 +88,7 @@ export function GameBoard({
                 const isShipFootprint = shipFootprintKeys.has(key);
                 const isTraitorTarget = traitorTargetKeys.has(key);
                 const clickable =
+                  canInteract &&
                   !gameState.winner &&
                   (isPieceTarget ||
                     isShipTarget ||

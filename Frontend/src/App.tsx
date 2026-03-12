@@ -7,11 +7,15 @@
   Text,
   VStack,
 } from "@chakra-ui/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BoardNotesCard } from "./components/BoardNotesCard.tsx";
 import { GameBoard } from "./components/GameBoard.tsx";
 import { PlayerSummaryCard } from "./components/PlayerSummaryCard.tsx";
-import { resolvePieceMove, resolveShipMove, resolveTraitorAbility } from "./game/actions.ts";
+import {
+  resolvePieceMove,
+  resolveShipMove,
+  resolveTraitorAbility,
+} from "./game/actions.ts";
 import {
   PLAYER_COLORS,
   PLAYER_LABELS,
@@ -30,6 +34,30 @@ import {
 import { createInitialGameState } from "./game/setup.ts";
 import type { GameState, Player, Selection } from "./game/types.ts";
 import { formatSquare, otherPlayer, toPositionKey } from "./game/utils.ts";
+import {
+  buildJoinUrl,
+  clearSeatToken,
+  createRoom,
+  getRoomWebSocketUrl,
+  getStoredSeatToken,
+  joinRoom,
+  readRoomIdFromUrl,
+  storeSeatToken,
+  writeRoomIdToUrl,
+  type ClientMessage,
+  type RoomSnapshot,
+  type ServerMessage,
+} from "./multiplayer.ts";
+
+type AppMode = "solo" | "multiplayer";
+type ConnectionState =
+  | "idle"
+  | "creating"
+  | "joining"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "error";
 
 const getSelectionHint = ({
   gameState,
@@ -91,35 +119,82 @@ const getTraitorStatus = (
     : "Claimed and ready";
 };
 
+const describeConnection = (connectionState: ConnectionState) => {
+  switch (connectionState) {
+    case "creating":
+      return "Creating room";
+    case "joining":
+      return "Joining room";
+    case "connecting":
+      return "Connecting";
+    case "connected":
+      return "Connected";
+    case "reconnecting":
+      return "Reconnecting";
+    case "error":
+      return "Needs attention";
+    default:
+      return "Idle";
+  }
+};
+
 function App() {
-  const [gameState, setGameState] = useState<GameState>(() =>
+  const [mode, setMode] = useState<AppMode>(() =>
+    readRoomIdFromUrl() ? "multiplayer" : "solo"
+  );
+  const [soloGameState, setSoloGameState] = useState<GameState>(() =>
     createInitialGameState()
   );
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [roomId, setRoomId] = useState<string | null>(() => readRoomIdFromUrl());
+  const [seatToken, setSeatToken] = useState<string | null>(() => {
+    const initialRoomId = readRoomIdFromUrl();
+    return initialRoomId ? getStoredSeatToken(initialRoomId) : null;
+  });
+  const [multiplayerRoom, setMultiplayerRoom] = useState<RoomSnapshot | null>(
+    null
+  );
+  const [multiplayerSeat, setMultiplayerSeat] = useState<Player | null>(null);
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>(() => {
+      if (!readRoomIdFromUrl()) {
+        return "idle";
+      }
+
+      return getStoredSeatToken(readRoomIdFromUrl()!) ? "connecting" : "idle";
+    });
+  const [multiplayerError, setMultiplayerError] = useState<string | null>(null);
+
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const authenticatedRef = useRef(false);
+  const reconnectAllowedRef = useRef(true);
+
+  const gameState = mode === "solo" ? soloGameState : multiplayerRoom?.gameState ?? null;
 
   const selectedPiece =
-    selection?.type === "piece"
+    selection?.type === "piece" && gameState
       ? gameState.pieces.find((piece) => piece.id === selection.id) ?? null
       : null;
 
   const selectedShip =
-    selection?.type === "ship"
+    selection?.type === "ship" && gameState
       ? gameState.ships.find((ship) => ship.id === selection.id) ?? null
       : null;
 
   const pieceTargets = useMemo(
-    () => (selectedPiece ? getPieceMoves(selectedPiece, gameState) : []),
+    () => (selectedPiece && gameState ? getPieceMoves(selectedPiece, gameState) : []),
     [gameState, selectedPiece]
   );
 
   const shipTargets = useMemo(
-    () => (selectedShip ? getShipMoves(selectedShip, gameState) : []),
+    () => (selectedShip && gameState ? getShipMoves(selectedShip, gameState) : []),
     [gameState, selectedShip]
   );
 
   const traitorTargets = useMemo(
     () =>
-      selection?.type === "traitorAbility"
+      selection?.type === "traitorAbility" && gameState
         ? gameState.pieces.filter(
             (piece) =>
               piece.kind === "hunter" &&
@@ -169,6 +244,7 @@ function App() {
   );
 
   const traitorAvailable =
+    gameState !== null &&
     gameState.traitorClaimedBy === gameState.currentTurn &&
     !gameState.traitorAbilityUsed[gameState.currentTurn] &&
     gameState.pieces.some(
@@ -177,25 +253,306 @@ function App() {
         piece.owner === otherPlayer(gameState.currentTurn)
     );
 
-  const dragonPiece = gameState.pieces.find((piece) => piece.kind === "dragon");
-  const marauderStats = getPlayerStats(gameState, "marauders");
-  const vikingStats = getPlayerStats(gameState, "vikings");
+  const canInteract =
+    gameState !== null &&
+    !gameState.winner &&
+    (mode === "solo"
+      ? true
+      : multiplayerRoom?.started === true &&
+        multiplayerSeat === gameState.currentTurn &&
+        connectionState === "connected");
 
-  const selectionHint = getSelectionHint({
+  const selectionHint = useMemo(() => {
+    if (!gameState) {
+      return roomId
+        ? "Open the room, claim a seat, and the board will sync from the backend."
+        : "Choose solo for hotseat play or create a multiplayer room to invite someone else.";
+    }
+
+    if (mode === "multiplayer") {
+      if (!multiplayerRoom?.started) {
+        return "The match stays locked until both seats are filled.";
+      }
+
+      if (connectionState !== "connected") {
+        return "The board is temporarily locked while the client reconnects to the room.";
+      }
+
+      if (multiplayerSeat && multiplayerSeat !== gameState.currentTurn && !gameState.winner) {
+        return `Waiting for ${PLAYER_LABELS[gameState.currentTurn]} to move.`;
+      }
+    }
+
+    return getSelectionHint({
+      gameState,
+      selection,
+      selectedPieceLabel: selectedPiece ? getPieceRoleLabel(selectedPiece) : null,
+      selectedShipKind: selectedShip?.kind ?? null,
+      traitorAvailable,
+    });
+  }, [
+    connectionState,
     gameState,
+    mode,
+    multiplayerRoom?.started,
+    multiplayerSeat,
+    roomId,
+    selectedPiece,
+    selectedShip,
     selection,
-    selectedPieceLabel: selectedPiece ? getPieceRoleLabel(selectedPiece) : null,
-    selectedShipKind: selectedShip?.kind ?? null,
     traitorAvailable,
-  });
+  ]);
+
+  const dragonPiece = gameState?.pieces.find((piece) => piece.kind === "dragon") ?? null;
+  const marauderStats = gameState ? getPlayerStats(gameState, "marauders") : null;
+  const vikingStats = gameState ? getPlayerStats(gameState, "vikings") : null;
+  const joinLink = roomId ? buildJoinUrl(roomId) : null;
+
+  useEffect(() => {
+    if (!gameState) {
+      setSelection(null);
+      return;
+    }
+
+    if (!canInteract) {
+      setSelection(null);
+      return;
+    }
+
+    if (
+      selection?.type === "piece" &&
+      !gameState.pieces.some((piece) => piece.id === selection.id)
+    ) {
+      setSelection(null);
+      return;
+    }
+
+    if (
+      selection?.type === "ship" &&
+      !gameState.ships.some((ship) => ship.id === selection.id)
+    ) {
+      setSelection(null);
+    }
+  }, [canInteract, gameState, selection]);
+
+  useEffect(() => {
+    if (mode !== "multiplayer" || !roomId || !seatToken) {
+      authenticatedRef.current = false;
+      reconnectAllowedRef.current = false;
+
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+
+      if (socketRef.current) {
+        const socket = socketRef.current;
+        socketRef.current = null;
+        socket.close();
+      }
+
+      return;
+    }
+
+    let cancelled = false;
+    authenticatedRef.current = false;
+    reconnectAllowedRef.current = true;
+
+    const connect = () => {
+      if (cancelled) {
+        return;
+      }
+
+      setConnectionState((current) =>
+        current === "connected" ? "reconnecting" : "connecting"
+      );
+
+      const socket = new WebSocket(getRoomWebSocketUrl(roomId));
+      socketRef.current = socket;
+
+      socket.addEventListener("open", () => {
+        socket.send(JSON.stringify({ type: "auth", seatToken } satisfies ClientMessage));
+      });
+
+      socket.addEventListener("message", (event) => {
+        const message = JSON.parse(event.data) as ServerMessage;
+
+        if (message.type === "auth_ok") {
+          authenticatedRef.current = true;
+          setMultiplayerRoom(message.room);
+          setMultiplayerSeat(message.seat);
+          setConnectionState("connected");
+          setMultiplayerError(null);
+          return;
+        }
+
+        if (message.type === "room_state") {
+          setMultiplayerRoom(message.room);
+
+          if (authenticatedRef.current) {
+            setConnectionState("connected");
+          }
+
+          return;
+        }
+
+        setMultiplayerError(message.message);
+
+        if (!authenticatedRef.current) {
+          reconnectAllowedRef.current = false;
+          setConnectionState("error");
+          clearSeatToken(roomId);
+          setSeatToken(null);
+          setMultiplayerSeat(null);
+        }
+      });
+
+      socket.addEventListener("close", () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+
+        if (cancelled || !reconnectAllowedRef.current) {
+          return;
+        }
+
+        setConnectionState((current) =>
+          current === "error" ? current : "reconnecting"
+        );
+        reconnectTimerRef.current = window.setTimeout(connect, 1500);
+      });
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      reconnectAllowedRef.current = false;
+
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+
+      if (socketRef.current) {
+        const socket = socketRef.current;
+        socketRef.current = null;
+        socket.close();
+      }
+    };
+  }, [mode, roomId, seatToken]);
+
+  const sendMultiplayerMessage = (
+    message: Exclude<ClientMessage, { type: "auth" }>
+  ) => {
+    const socket = socketRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setMultiplayerError("The room connection is not ready yet. Please wait a moment.");
+      setConnectionState("reconnecting");
+      return false;
+    }
+
+    socket.send(JSON.stringify(message));
+    return true;
+  };
 
   const handleReset = () => {
-    setGameState(createInitialGameState());
+    setSoloGameState(createInitialGameState());
     setSelection(null);
   };
 
+  const handleCopyJoinLink = async () => {
+    if (!joinLink || !navigator.clipboard) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(joinLink);
+      setMultiplayerError("Join link copied to the clipboard.");
+    } catch {
+      setMultiplayerError("Could not copy the join link automatically.");
+    }
+  };
+
+  const handleSwitchToSolo = () => {
+    writeRoomIdToUrl(null);
+    setMode("solo");
+    setRoomId(null);
+    setSeatToken(null);
+    setMultiplayerRoom(null);
+    setMultiplayerSeat(null);
+    setConnectionState("idle");
+    setMultiplayerError(null);
+    setSelection(null);
+  };
+
+  const handleSwitchToMultiplayer = () => {
+    setMode("multiplayer");
+    setSelection(null);
+
+    if (!roomId) {
+      setMultiplayerRoom(null);
+      setMultiplayerSeat(null);
+      setSeatToken(null);
+      setConnectionState("idle");
+      setMultiplayerError(null);
+    }
+  };
+
+  const handleCreateRoom = async () => {
+    setMode("multiplayer");
+    setConnectionState("creating");
+    setMultiplayerError(null);
+
+    try {
+      const session = await createRoom();
+      const nextRoomId = session.room.roomId;
+
+      storeSeatToken(nextRoomId, session.seatToken);
+      writeRoomIdToUrl(nextRoomId);
+      setRoomId(nextRoomId);
+      setSeatToken(session.seatToken);
+      setMultiplayerRoom(session.room);
+      setMultiplayerSeat(session.seat);
+      setConnectionState("connecting");
+      setSelection(null);
+    } catch (error) {
+      setConnectionState("error");
+      setMultiplayerError(
+        error instanceof Error ? error.message : "Could not create a room."
+      );
+    }
+  };
+
+  const handleJoinRoom = async () => {
+    if (!roomId) {
+      return;
+    }
+
+    setMode("multiplayer");
+    setConnectionState("joining");
+    setMultiplayerError(null);
+
+    try {
+      const session = await joinRoom(roomId);
+
+      storeSeatToken(roomId, session.seatToken);
+      setSeatToken(session.seatToken);
+      setMultiplayerRoom(session.room);
+      setMultiplayerSeat(session.seat);
+      setConnectionState("connecting");
+      setSelection(null);
+    } catch (error) {
+      setConnectionState("error");
+      setMultiplayerError(
+        error instanceof Error ? error.message : "Could not join that room."
+      );
+    }
+  };
+
   const handleTraitorToggle = () => {
-    if (!traitorAvailable) {
+    if (!gameState || !traitorAvailable || !canInteract) {
       return;
     }
 
@@ -205,7 +562,7 @@ function App() {
   };
 
   const handleSquareClick = (row: number, col: number) => {
-    if (gameState.winner) {
+    if (!gameState || !canInteract || gameState.winner) {
       return;
     }
 
@@ -216,24 +573,47 @@ function App() {
       const targetHunterId = traitorTargetMap.get(positionKey);
 
       if (targetHunterId) {
-        setGameState((current) =>
-          resolveTraitorAbility(current, targetHunterId)
-        );
+        if (mode === "solo") {
+          setSoloGameState((current) =>
+            resolveTraitorAbility(current, targetHunterId)
+          );
+        } else {
+          sendMultiplayerMessage({ type: "use_traitor", targetHunterId });
+        }
+
         setSelection(null);
         return;
       }
     }
 
     if (selection?.type === "piece" && pieceTargetKeys.has(positionKey)) {
-      setGameState((current) =>
-        resolvePieceMove(current, selection.id, position)
-      );
+      if (mode === "solo") {
+        setSoloGameState((current) =>
+          resolvePieceMove(current, selection.id, position)
+        );
+      } else {
+        sendMultiplayerMessage({
+          type: "move_piece",
+          pieceId: selection.id,
+          target: position,
+        });
+      }
+
       setSelection(null);
       return;
     }
 
     if (selection?.type === "ship" && shipTargetKeys.has(positionKey)) {
-      setGameState((current) => resolveShipMove(current, selection.id, position));
+      if (mode === "solo") {
+        setSoloGameState((current) => resolveShipMove(current, selection.id, position));
+      } else {
+        sendMultiplayerMessage({
+          type: "move_ship",
+          shipId: selection.id,
+          target: position,
+        });
+      }
+
       setSelection(null);
       return;
     }
@@ -250,11 +630,7 @@ function App() {
       return;
     }
 
-    if (
-      !clickedPiece &&
-      clickedShip &&
-      isSelectableShip(clickedShip, gameState)
-    ) {
+    if (!clickedPiece && clickedShip && isSelectableShip(clickedShip, gameState)) {
       setSelection((current) =>
         current?.type === "ship" && current.id === clickedShip.id
           ? null
@@ -320,17 +696,22 @@ function App() {
                 fontSize={{ base: "sm", md: "md" }}
                 color="var(--ink-soft)"
               >
-                The full opening setup is on the board now: Chiefs, Hunters,
-                ships, Maces, the Dragon, and the Traitor. Win by moving a
-                Mace-bearer adjacent to the enemy Chief.
+                Play the opening as local hotseat or move the trusted game state to
+                the backend and share a join link for a live match. Multiplayer
+                seats reconnect with signed tokens, and the room stays locked until
+                both players are in.
               </Text>
             </VStack>
 
             <VStack
               gap={2}
               align="stretch"
-              minW={{ base: "100%", md: "260px" }}
-              bg={PLAYER_SURFACES[gameState.currentTurn]}
+              minW={{ base: "100%", md: "280px" }}
+              bg={
+                gameState
+                  ? PLAYER_SURFACES[gameState.currentTurn]
+                  : "rgba(40, 75, 99, 0.12)"
+              }
               border="1px solid rgba(86, 60, 32, 0.18)"
               borderRadius="20px"
               p={4}
@@ -341,22 +722,148 @@ function App() {
                 letterSpacing="0.18em"
                 color="#705633"
               >
-                Turn
+                {mode === "solo" ? "Mode" : "Room"}
               </Text>
-              <Text
-                fontSize="xl"
-                fontWeight="800"
-                color={PLAYER_COLORS[gameState.currentTurn]}
-              >
-                {gameState.winner
-                  ? `${PLAYER_LABELS[gameState.winner]} Won`
-                  : PLAYER_LABELS[gameState.currentTurn]}
+              <Text fontSize="xl" fontWeight="800" color="#3f2f21">
+                {mode === "solo"
+                  ? "Solo Hotseat"
+                  : roomId
+                  ? `Room ${roomId.toUpperCase()}`
+                  : "Multiplayer Lobby"}
               </Text>
               <Text fontSize="sm" color="var(--ink-soft)">
-                {gameState.status}
+                {gameState
+                  ? gameState.winner
+                    ? `${PLAYER_LABELS[gameState.winner]} Won`
+                    : PLAYER_LABELS[gameState.currentTurn]
+                  : "Create or join a room"}
               </Text>
+              {mode === "multiplayer" ? (
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  {describeConnection(connectionState)}
+                  {multiplayerSeat ? ` as ${PLAYER_LABELS[multiplayerSeat]}` : ""}
+                </Text>
+              ) : (
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  Move both sides locally on the same board.
+                </Text>
+              )}
             </VStack>
           </HStack>
+
+          <HStack gap={3} flexWrap="wrap">
+            <Button
+              onClick={handleSwitchToSolo}
+              bg={mode === "solo" ? "#3f2f21" : "#eedbb3"}
+              color={mode === "solo" ? "#f7ecd7" : "#3b2814"}
+              border="1px solid rgba(86, 60, 32, 0.2)"
+              _hover={{ bg: mode === "solo" ? "#2f2217" : "#e8d0a0" }}
+            >
+              Play Solo
+            </Button>
+            <Button
+              onClick={handleSwitchToMultiplayer}
+              bg={mode === "multiplayer" ? "#3f2f21" : "#eedbb3"}
+              color={mode === "multiplayer" ? "#f7ecd7" : "#3b2814"}
+              border="1px solid rgba(86, 60, 32, 0.2)"
+              _hover={{ bg: mode === "multiplayer" ? "#2f2217" : "#e8d0a0" }}
+            >
+              Play Multiplayer
+            </Button>
+            {mode === "multiplayer" && !roomId ? (
+              <Button
+                onClick={handleCreateRoom}
+                bg="#8f2d18"
+                color="#f8edda"
+                _hover={{ bg: "#742515" }}
+              >
+                Create Game
+              </Button>
+            ) : null}
+            {mode === "multiplayer" && roomId && !seatToken ? (
+              <Button
+                onClick={handleJoinRoom}
+                bg="#284b63"
+                color="#f3eadb"
+                _hover={{ bg: "#203b4e" }}
+              >
+                Join Game
+              </Button>
+            ) : null}
+            {mode === "multiplayer" && joinLink ? (
+              <Button
+                onClick={handleCopyJoinLink}
+                bg="#eedbb3"
+                color="#3b2814"
+                border="1px solid rgba(86, 60, 32, 0.2)"
+                _hover={{ bg: "#e8d0a0" }}
+              >
+                Copy Join Link
+              </Button>
+            ) : null}
+            {mode === "solo" ? (
+              <Button
+                onClick={handleReset}
+                bg="#3f2f21"
+                color="#f7ecd7"
+                _hover={{ bg: "#2f2217" }}
+              >
+                Reset Match
+              </Button>
+            ) : null}
+          </HStack>
+
+          {mode === "multiplayer" ? (
+            <Stack direction={{ base: "column", lg: "row" }} gap={4}>
+              <VStack
+                flex={1}
+                align="stretch"
+                gap={2}
+                bg="rgba(255, 248, 232, 0.56)"
+                border="1px solid rgba(86, 60, 32, 0.16)"
+                borderRadius="20px"
+                p={4}
+              >
+                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
+                  Room Flow
+                </Text>
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  {roomId
+                    ? `Share ${joinLink ?? "the room link"} and the backend will hold the trusted state.`
+                    : "Create a room to become Vikings, then share the generated join link with the second player."}
+                </Text>
+                {roomId ? (
+                  <Text fontSize="sm" color="var(--ink-soft)" fontFamily="mono">
+                    {joinLink}
+                  </Text>
+                ) : null}
+              </VStack>
+              <VStack
+                flex={1}
+                align="stretch"
+                gap={2}
+                bg="rgba(255, 248, 232, 0.56)"
+                border="1px solid rgba(86, 60, 32, 0.16)"
+                borderRadius="20px"
+                p={4}
+              >
+                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
+                  Seats
+                </Text>
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  Vikings: {multiplayerRoom?.seats.vikings.claimed ? "claimed" : "open"}
+                  {multiplayerRoom?.seats.vikings.connected ? " and connected" : ""}
+                </Text>
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  Marauders: {multiplayerRoom?.seats.marauders.claimed ? "claimed" : "open"}
+                  {multiplayerRoom?.seats.marauders.connected ? " and connected" : ""}
+                </Text>
+                <Text fontSize="sm" color="var(--ink-soft)">
+                  Game start: {multiplayerRoom?.started ? "ready" : "waiting for both players"}
+                </Text>
+              </VStack>
+            </Stack>
+          ) : null}
 
           <HStack gap={4} flexWrap="wrap" fontSize="sm" color="var(--ink-soft)">
             <HStack gap={2}>
@@ -386,80 +893,102 @@ function App() {
             </HStack>
           </HStack>
 
-          <HStack gap={3} flexWrap="wrap">
-            <Button
-              onClick={handleTraitorToggle}
-              disabled={!traitorAvailable || Boolean(gameState.winner)}
-              bg={selection?.type === "traitorAbility" ? "#f0b66a" : "#eedbb3"}
-              color="#3b2814"
-              border="1px solid rgba(86, 60, 32, 0.2)"
-              _hover={{
-                bg:
-                  selection?.type === "traitorAbility" ? "#ecaa54" : "#e8d0a0",
-              }}
-            >
-              {selection?.type === "traitorAbility"
-                ? "Cancel Traitor"
-                : "Activate Traitor"}
-            </Button>
-            <Button
-              onClick={handleReset}
-              bg="#3f2f21"
-              color="#f7ecd7"
-              _hover={{ bg: "#2f2217" }}
-            >
-              Reset Match
-            </Button>
-            <Text fontSize="sm" color="var(--ink-soft)">
-              {selectionHint}
+          {gameState ? (
+            <HStack gap={3} flexWrap="wrap">
+              <Button
+                onClick={handleTraitorToggle}
+                disabled={!traitorAvailable || !canInteract || Boolean(gameState.winner)}
+                bg={selection?.type === "traitorAbility" ? "#f0b66a" : "#eedbb3"}
+                color="#3b2814"
+                border="1px solid rgba(86, 60, 32, 0.2)"
+                _hover={{
+                  bg:
+                    selection?.type === "traitorAbility" ? "#ecaa54" : "#e8d0a0",
+                }}
+              >
+                {selection?.type === "traitorAbility"
+                  ? "Cancel Traitor"
+                  : "Activate Traitor"}
+              </Button>
+              <Text fontSize="sm" color="var(--ink-soft)">
+                {selectionHint}
+              </Text>
+            </HStack>
+          ) : null}
+
+          {multiplayerError ? (
+            <Text fontSize="sm" color="#8f2d18">
+              {multiplayerError}
             </Text>
-          </HStack>
+          ) : null}
         </VStack>
 
-        <GameBoard
-          gameState={gameState}
-          selection={selection}
-          pieceTargetKeys={pieceTargetKeys}
-          shipTargetKeys={shipTargetKeys}
-          shipFootprintKeys={shipFootprintKeys}
-          traitorTargetKeys={traitorTargetKeys}
-          onSquareClick={handleSquareClick}
-        />
+        {gameState ? (
+          <GameBoard
+            gameState={gameState}
+            selection={selection}
+            pieceTargetKeys={pieceTargetKeys}
+            shipTargetKeys={shipTargetKeys}
+            shipFootprintKeys={shipFootprintKeys}
+            traitorTargetKeys={traitorTargetKeys}
+            canInteract={canInteract}
+            onSquareClick={handleSquareClick}
+          />
+        ) : (
+          <VStack
+            align="stretch"
+            gap={3}
+            bg="rgba(58, 34, 11, 0.92)"
+            color="#f3e8cb"
+            borderRadius="30px"
+            p={{ base: 5, md: 6 }}
+            boxShadow="0 28px 65px rgba(42, 24, 8, 0.35)"
+          >
+            <Heading as="h2" fontSize="2xl" fontFamily="'Palatino Linotype', 'Book Antiqua', serif">
+              Multiplayer Lobby
+            </Heading>
+            <Text color="rgba(243, 232, 203, 0.82)">
+              Create a room to seat Vikings, or open a shared join link to claim the other side.
+            </Text>
+          </VStack>
+        )}
 
-        <Stack direction={{ base: "column", lg: "row" }} gap={4} align="stretch">
-          <PlayerSummaryCard
-            title="Marauders"
-            color={PLAYER_COLORS.marauders}
-            hunters={marauderStats.hunters}
-            maceBearers={marauderStats.maceBearers}
-            dragonControlled={gameState.dragonController === "marauders"}
-            traitorStatus={getTraitorStatus(
-              "marauders",
-              gameState,
-              marauderStats.hasTraitorPiece
-            )}
-          />
-          <BoardNotesCard
-            dragonSquare={dragonPiece ? formatSquare(dragonPiece.position) : "the board"}
-            traitorSquare={
-              gameState.traitorTokenPosition
-                ? formatSquare(gameState.traitorTokenPosition)
-                : "a claimed position"
-            }
-          />
-          <PlayerSummaryCard
-            title="Vikings"
-            color={PLAYER_COLORS.vikings}
-            hunters={vikingStats.hunters}
-            maceBearers={vikingStats.maceBearers}
-            dragonControlled={gameState.dragonController === "vikings"}
-            traitorStatus={getTraitorStatus(
-              "vikings",
-              gameState,
-              vikingStats.hasTraitorPiece
-            )}
-          />
-        </Stack>
+        {gameState && marauderStats && vikingStats ? (
+          <Stack direction={{ base: "column", lg: "row" }} gap={4} align="stretch">
+            <PlayerSummaryCard
+              title="Marauders"
+              color={PLAYER_COLORS.marauders}
+              hunters={marauderStats.hunters}
+              maceBearers={marauderStats.maceBearers}
+              dragonControlled={gameState.dragonController === "marauders"}
+              traitorStatus={getTraitorStatus(
+                "marauders",
+                gameState,
+                marauderStats.hasTraitorPiece
+              )}
+            />
+            <BoardNotesCard
+              dragonSquare={dragonPiece ? formatSquare(dragonPiece.position) : "the board"}
+              traitorSquare={
+                gameState.traitorTokenPosition
+                  ? formatSquare(gameState.traitorTokenPosition)
+                  : "a claimed position"
+              }
+            />
+            <PlayerSummaryCard
+              title="Vikings"
+              color={PLAYER_COLORS.vikings}
+              hunters={vikingStats.hunters}
+              maceBearers={vikingStats.maceBearers}
+              dragonControlled={gameState.dragonController === "vikings"}
+              traitorStatus={getTraitorStatus(
+                "vikings",
+                gameState,
+                vikingStats.hasTraitorPiece
+              )}
+            />
+          </Stack>
+        ) : null}
       </VStack>
     </Box>
   );
