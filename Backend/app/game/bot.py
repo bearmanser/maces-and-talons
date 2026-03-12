@@ -40,12 +40,14 @@ class DifficultyProfile:
     depth: int
     candidate_pool: int
     score_window: int
+    root_search_width: int | None = None
+    tree_search_width: int | None = None
 
 
 DIFFICULTY_PROFILES: dict[BotDifficulty, DifficultyProfile] = {
     "easy": DifficultyProfile(depth=1, candidate_pool=6, score_window=120),
     "medium": DifficultyProfile(depth=1, candidate_pool=1, score_window=0),
-    "hard": DifficultyProfile(depth=1, candidate_pool=1, score_window=0),
+    "hard": DifficultyProfile(depth=2, candidate_pool=1, score_window=0, root_search_width=4, tree_search_width=5),
 }
 
 
@@ -58,15 +60,24 @@ def choose_bot_action(state: GameState, player: Player, difficulty: BotDifficult
     profile = DIFFICULTY_PROFILES[difficulty]
     ranked_children = _rank_children(state, legal_actions, player, reverse=True)
     scored_actions: list[tuple[BotAction, int, int, int]] = []
+    search_candidates = ranked_children
 
-    for action, child_state, heuristic_score, action_priority in ranked_children:
-        score = _search(
-            child_state,
-            depth=profile.depth - 1,
-            alpha=-_WIN_SCORE * 2,
-            beta=_WIN_SCORE * 2,
-            bot_player=player,
-        )
+    if profile.depth > 1 and profile.root_search_width is not None:
+        search_candidates = ranked_children[: profile.root_search_width]
+
+    for action, child_state, heuristic_score, action_priority in search_candidates:
+        score = heuristic_score
+
+        if profile.depth > 1:
+            score = _search(
+                child_state,
+                depth=profile.depth - 1,
+                alpha=-_WIN_SCORE * 2,
+                beta=_WIN_SCORE * 2,
+                bot_player=player,
+                max_branching=profile.tree_search_width,
+            )
+
         scored_actions.append((action, score, action_priority, heuristic_score))
 
     scored_actions.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
@@ -132,7 +143,14 @@ def get_legal_actions(state: GameState, player: Player) -> list[BotAction]:
     return actions
 
 
-def _search(state: GameState, depth: int, alpha: int, beta: int, bot_player: Player) -> int:
+def _search(
+    state: GameState,
+    depth: int,
+    alpha: int,
+    beta: int,
+    bot_player: Player,
+    max_branching: int | None = None,
+) -> int:
     if state["winner"] or depth == 0:
         return _evaluate_state(state, bot_player, depth)
 
@@ -143,13 +161,19 @@ def _search(state: GameState, depth: int, alpha: int, beta: int, bot_player: Pla
         return _evaluate_state(state, bot_player, depth)
 
     maximizing = current_player == bot_player
-    ranked_children = _rank_children(state, legal_actions, bot_player, reverse=maximizing)
+    ordered_children = _order_search_children(
+        state,
+        legal_actions,
+        bot_player,
+        reverse=maximizing,
+        max_branching=max_branching,
+    )
 
     if maximizing:
         best_score = -_WIN_SCORE * 2
 
-        for _, child_state, _, _ in ranked_children:
-            best_score = max(best_score, _search(child_state, depth - 1, alpha, beta, bot_player))
+        for child_state in ordered_children:
+            best_score = max(best_score, _search(child_state, depth - 1, alpha, beta, bot_player, max_branching))
             alpha = max(alpha, best_score)
 
             if alpha >= beta:
@@ -159,8 +183,8 @@ def _search(state: GameState, depth: int, alpha: int, beta: int, bot_player: Pla
 
     best_score = _WIN_SCORE * 2
 
-    for _, child_state, _, _ in ranked_children:
-        best_score = min(best_score, _search(child_state, depth - 1, alpha, beta, bot_player))
+    for child_state in ordered_children:
+        best_score = min(best_score, _search(child_state, depth - 1, alpha, beta, bot_player, max_branching))
         beta = min(beta, best_score)
 
         if beta <= alpha:
@@ -185,6 +209,28 @@ def _rank_children(
 
     ranked_children.sort(key=lambda item: (item[2], item[3]), reverse=reverse)
     return ranked_children
+
+
+def _order_search_children(
+    state: GameState,
+    actions: list[BotAction],
+    bot_player: Player,
+    reverse: bool,
+    max_branching: int | None,
+) -> list[GameState]:
+    ordered_children: list[tuple[GameState, int]] = []
+
+    for action in actions:
+        child_state = apply_bot_action(state, action)
+        action_priority = _score_action(state, child_state, action, bot_player)
+        ordered_children.append((child_state, action_priority))
+
+    ordered_children.sort(key=lambda item: item[1], reverse=reverse)
+
+    if max_branching is not None:
+        ordered_children = ordered_children[:max_branching]
+
+    return [child_state for child_state, _ in ordered_children]
 
 
 def _evaluate_state(state: GameState, bot_player: Player, depth_remaining: int) -> int:
@@ -960,5 +1006,7 @@ def _piece_value(kind: str, carries_mace: bool) -> int:
 
 def _manhattan_distance(first: Position, second: Position) -> int:
     return abs(first["row"] - second["row"]) + abs(first["col"] - second["col"])
+
+
 
 
