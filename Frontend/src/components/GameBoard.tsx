@@ -34,6 +34,8 @@ export function GameBoard({
   canInteract,
   onSquareClick,
 }: GameBoardProps) {
+  const boardSize = terrainMap.length;
+
   return (
     <Box
       flex={1}
@@ -42,12 +44,12 @@ export function GameBoard({
       borderRadius="32px"
       p={{ base: 4, md: 6 }}
       boxShadow="0 32px 80px rgba(0, 0, 0, 0.35)"
-      overflowX="auto"
+      overflow="hidden"
     >
-      <Box minW="fit-content" mx="auto">
+      <Box w="full" maxW="860px" mx="auto">
         <Grid
-          templateColumns={`36px repeat(${terrainMap.length}, 42px)`}
-          gap={2}
+          templateColumns={`minmax(20px, 0.7fr) repeat(${boardSize}, minmax(0, 1fr))`}
+          gap={{ base: 1, md: 2 }}
           alignItems="center"
         >
           <Box />
@@ -55,7 +57,7 @@ export function GameBoard({
             <Text
               key={label}
               textAlign="center"
-              fontSize="sm"
+              fontSize="clamp(0.65rem, 1.8vw, 0.9rem)"
               fontWeight="700"
               color="rgba(245, 239, 225, 0.72)"
             >
@@ -67,7 +69,7 @@ export function GameBoard({
             <Box key={`row-${rowIndex}`} display="contents">
               <Text
                 textAlign="center"
-                fontSize="sm"
+                fontSize="clamp(0.65rem, 1.8vw, 0.9rem)"
                 fontWeight="700"
                 color="rgba(245, 239, 225, 0.72)"
               >
@@ -109,19 +111,19 @@ export function GameBoard({
                       ? PLAYER_COLORS[pieceOwner]
                       : "#6b572a"
                     : pieceOwner
-                    ? PLAYER_COLORS[pieceOwner]
-                    : "#5c4a32";
+                      ? PLAYER_COLORS[pieceOwner]
+                      : "#5c4a32";
 
                 const cellBorderColor =
                   isSelectedPiece || isSelectedShip
                     ? "var(--highlight)"
                     : isTraitorTarget
-                    ? "#f0b66a"
-                    : isShipTarget
-                    ? "#f5dd63"
-                    : isPieceTarget
-                    ? "rgba(245, 221, 99, 0.85)"
-                    : "rgba(255, 244, 219, 0.12)";
+                      ? "#f0b66a"
+                      : isShipTarget
+                        ? "#f5dd63"
+                        : isPieceTarget
+                          ? "rgba(245, 221, 99, 0.85)"
+                          : "rgba(255, 244, 219, 0.12)";
 
                 return (
                   <Box
@@ -135,8 +137,10 @@ export function GameBoard({
                     display="flex"
                     alignItems="center"
                     justifyContent="center"
-                    boxSize="42px"
-                    borderRadius="14px"
+                    w="full"
+                    minW={0}
+                    aspectRatio={1}
+                    borderRadius={{ base: "10px", md: "14px" }}
                     border="2px solid"
                     borderColor={cellBorderColor}
                     bg={
@@ -150,10 +154,10 @@ export function GameBoard({
                       isSelectedPiece || isSelectedShip
                         ? "0 0 0 3px rgba(245, 221, 99, 0.18), inset 0 0 0 1px rgba(255, 251, 227, 0.3)"
                         : isTraitorTarget
-                        ? "0 0 0 3px rgba(240, 182, 106, 0.22)"
-                        : isPieceTarget || isShipTarget
-                        ? "0 0 0 3px rgba(245, 221, 99, 0.14)"
-                        : "inset 0 1px 0 rgba(255, 245, 218, 0.2)"
+                          ? "0 0 0 3px rgba(240, 182, 106, 0.22)"
+                          : isPieceTarget || isShipTarget
+                            ? "0 0 0 3px rgba(245, 221, 99, 0.14)"
+                            : "inset 0 1px 0 rgba(255, 245, 218, 0.2)"
                     }
                     _hover={
                       clickable
@@ -171,8 +175,8 @@ export function GameBoard({
                     {ship ? (
                       <Box
                         position="absolute"
-                        inset="4px"
-                        borderRadius={ship.kind === "chiefship" ? "999px" : "10px"}
+                        inset="10%"
+                        borderRadius={ship.kind === "chiefship" ? "999px" : "24%"}
                         bg={
                           ship.kind === "chiefship"
                             ? `${PLAYER_COLORS[ship.owner]}cc`
@@ -185,8 +189,8 @@ export function GameBoard({
                     {isShipFootprint && !ship ? (
                       <Box
                         position="absolute"
-                        inset="5px"
-                        borderRadius="10px"
+                        inset="12%"
+                        borderRadius="24%"
                         bg="rgba(245, 221, 99, 0.18)"
                       />
                     ) : null}
@@ -194,7 +198,7 @@ export function GameBoard({
                     {isPieceTarget && !piece && !ship ? (
                       <Box
                         position="absolute"
-                        boxSize="11px"
+                        boxSize="22%"
                         borderRadius="999px"
                         bg="rgba(255, 247, 196, 0.92)"
                       />
@@ -203,7 +207,7 @@ export function GameBoard({
                     {isShipTarget ? (
                       <Box
                         position="absolute"
-                        boxSize="14px"
+                        boxSize="28%"
                         rotate="45deg"
                         bg="rgba(255, 247, 196, 0.9)"
                         borderRadius="3px"
@@ -213,9 +217,9 @@ export function GameBoard({
                     {ship ? (
                       <Text
                         position="absolute"
-                        insetInlineStart="5px"
-                        insetBlockEnd="3px"
-                        fontSize="9px"
+                        insetInlineStart="10%"
+                        insetBlockEnd="7%"
+                        fontSize="clamp(0.38rem, 1vw, 0.56rem)"
                         fontWeight="900"
                         color="#fff6df"
                         zIndex={1}
@@ -227,16 +231,16 @@ export function GameBoard({
                     {mace ? (
                       <Box
                         position="absolute"
-                        insetInlineEnd="3px"
-                        insetBlockEnd="3px"
-                        boxSize="13px"
-                        borderRadius="4px"
+                        insetInlineEnd="7%"
+                        insetBlockEnd="7%"
+                        boxSize="30%"
+                        borderRadius="26%"
                         bg="#f1ca5e"
                         color="#4e3208"
                         border="1px solid rgba(68, 44, 8, 0.45)"
                         display="grid"
                         placeItems="center"
-                        fontSize="9px"
+                        fontSize="clamp(0.45rem, 1vw, 0.56rem)"
                         fontWeight="900"
                         zIndex={2}
                       >
@@ -250,13 +254,13 @@ export function GameBoard({
                         zIndex={3}
                         display="grid"
                         placeItems="center"
-                        boxSize="28px"
+                        boxSize="66%"
                         borderRadius="999px"
                         bg="#2f2418"
                         color="#f3e4c0"
                         border="2px solid #d8bd82"
                         fontWeight="900"
-                        fontSize="lg"
+                        fontSize="clamp(0.8rem, 2vw, 1.1rem)"
                       >
                         ?
                       </Box>
@@ -268,12 +272,12 @@ export function GameBoard({
                         zIndex={4}
                         display="grid"
                         placeItems="center"
-                        boxSize={piece.kind === "chief" ? "31px" : "29px"}
-                        borderRadius={piece.kind === "chief" ? "10px" : "999px"}
+                        boxSize={piece.kind === "chief" ? "74%" : "69%"}
+                        borderRadius={piece.kind === "chief" ? "26%" : "999px"}
                         bg={pieceColor}
                         color="#fff7e7"
                         fontWeight="900"
-                        fontSize="lg"
+                        fontSize="clamp(0.8rem, 2vw, 1.1rem)"
                         border={
                           piece.kind === "dragon"
                             ? "2px solid #f1ca5e"
@@ -285,16 +289,16 @@ export function GameBoard({
                         {piece.carriesMace ? (
                           <Box
                             position="absolute"
-                            insetInlineEnd="-4px"
-                            insetBlockStart="-4px"
-                            boxSize="14px"
-                            borderRadius="4px"
+                            insetInlineEnd="-7%"
+                            insetBlockStart="-7%"
+                            boxSize="42%"
+                            borderRadius="26%"
                             bg="#f1ca5e"
                             color="#4e3208"
                             border="1px solid rgba(68, 44, 8, 0.45)"
                             display="grid"
                             placeItems="center"
-                            fontSize="9px"
+                            fontSize="clamp(0.45rem, 1vw, 0.56rem)"
                             fontWeight="900"
                           >
                             M
@@ -312,3 +316,4 @@ export function GameBoard({
     </Box>
   );
 }
+

@@ -52,6 +52,7 @@ type ConnectionState =
   | "connected"
   | "reconnecting"
   | "error";
+type PendingClientMessage = Exclude<ClientMessage, { type: "auth" }>;
 
 const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   easy: "Easy",
@@ -254,6 +255,8 @@ function App() {
   const [multiplayerNotice, setMultiplayerNotice] = useState<string | null>(
     null
   );
+  const [optimisticGameState, setOptimisticGameState] =
+    useState<GameState | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -267,7 +270,9 @@ function App() {
       ?.description ?? "";
 
   const gameState =
-    mode === "solo" ? soloGameState : multiplayerRoom?.gameState ?? null;
+    mode === "solo"
+      ? soloGameState
+      : optimisticGameState ?? multiplayerRoom?.gameState ?? null;
 
   const canInteract =
     gameState !== null &&
@@ -464,6 +469,7 @@ function App() {
       : screen;
 
   const syncRoomSnapshot = (room: RoomSnapshot) => {
+
     setMultiplayerRoom(room);
     setMode((current) =>
       current === "solo" ? current : room.bot ? "bot" : "multiplayer"
@@ -482,6 +488,7 @@ function App() {
     writeRoomIdToUrl(null);
     setRoomId(null);
     setSeatToken(null);
+
     setMultiplayerRoom(null);
     setMultiplayerSeat(null);
     setConnectionState("idle");
@@ -493,6 +500,7 @@ function App() {
     if (!isOnlineMode(mode) || !roomId || !seatToken) {
       authenticatedRef.current = false;
       reconnectAllowedRef.current = false;
+
 
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current);
@@ -568,6 +576,7 @@ function App() {
           socketRef.current = null;
         }
 
+
         if (cancelled || !reconnectAllowedRef.current) {
           return;
         }
@@ -598,9 +607,7 @@ function App() {
     };
   }, [mode, roomId, seatToken]);
 
-  const sendMultiplayerMessage = (
-    message: Exclude<ClientMessage, { type: "auth" }>
-  ) => {
+  const sendMultiplayerMessage = (message: PendingClientMessage) => {
     const socket = socketRef.current;
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -610,7 +617,30 @@ function App() {
       return false;
     }
 
-    socket.send(JSON.stringify(message));
+    try {
+      socket.send(JSON.stringify(message));
+      return true;
+    } catch {
+      setMultiplayerError("The room connection dropped before the move could be sent.");
+      setMultiplayerNotice(null);
+      setConnectionState("reconnecting");
+      return false;
+    }
+  };
+
+  const submitOnlineAction = (
+    nextState: GameState,
+    message: PendingClientMessage
+  ) => {
+    setOptimisticGameState(nextState);
+
+    if (!sendMultiplayerMessage(message)) {
+
+      return false;
+    }
+
+    setMultiplayerError(null);
+    setMultiplayerNotice(null);
     return true;
   };
 
@@ -667,6 +697,7 @@ function App() {
 
     setMode("multiplayer");
     setScreen("multiplayerLobby");
+
     setConnectionState("creating");
     setMultiplayerError(null);
     setMultiplayerNotice(null);
@@ -699,6 +730,7 @@ function App() {
 
     setMode("bot");
     setScreen("botSetup");
+
     setConnectionState("creating");
     setMultiplayerError(null);
     setMultiplayerNotice(null);
@@ -730,6 +762,7 @@ function App() {
     }
 
     setMode("multiplayer");
+
     setConnectionState("joining");
     setMultiplayerError(null);
     setMultiplayerNotice(null);
@@ -786,11 +819,16 @@ function App() {
           setSoloGameState((current) =>
             resolveTraitorAbility(current, targetHunterId)
           );
-        } else {
-          sendMultiplayerMessage({ type: "use_traitor", targetHunterId });
+          setSelection(null);
+          return;
         }
 
-        setSelection(null);
+        const nextState = resolveTraitorAbility(gameState, targetHunterId);
+
+        if (submitOnlineAction(nextState, { type: "use_traitor", targetHunterId })) {
+          setSelection(null);
+        }
+
         return;
       }
     }
@@ -800,15 +838,22 @@ function App() {
         setSoloGameState((current) =>
           resolvePieceMove(current, activeSelection.id, position)
         );
-      } else {
-        sendMultiplayerMessage({
+        setSelection(null);
+        return;
+      }
+
+      const nextState = resolvePieceMove(gameState, activeSelection.id, position);
+
+      if (
+        submitOnlineAction(nextState, {
           type: "move_piece",
           pieceId: activeSelection.id,
           target: position,
-        });
+        })
+      ) {
+        setSelection(null);
       }
 
-      setSelection(null);
       return;
     }
 
@@ -817,15 +862,22 @@ function App() {
         setSoloGameState((current) =>
           resolveShipMove(current, activeSelection.id, position)
         );
-      } else {
-        sendMultiplayerMessage({
+        setSelection(null);
+        return;
+      }
+
+      const nextState = resolveShipMove(gameState, activeSelection.id, position);
+
+      if (
+        submitOnlineAction(nextState, {
           type: "move_ship",
           shipId: activeSelection.id,
           target: position,
-        });
+        })
+      ) {
+        setSelection(null);
       }
 
-      setSelection(null);
       return;
     }
 
@@ -1117,5 +1169,4 @@ function App() {
 }
 
 export default App;
-
 
