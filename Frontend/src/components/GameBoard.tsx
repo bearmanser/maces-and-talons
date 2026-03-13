@@ -1,4 +1,4 @@
-﻿import { Box, Grid, Text } from "@chakra-ui/react";
+import { Box, Grid, Text } from "@chakra-ui/react";
 import { COLUMN_LABELS, PLAYER_COLORS, terrainMap } from "../game/constants.ts";
 import {
   getGroundMaceAt,
@@ -36,10 +36,12 @@ export function GameBoard({
 }: GameBoardProps) {
   return (
     <Box
-      bg="rgba(58, 34, 11, 0.92)"
-      borderRadius="30px"
-      p={{ base: 3, md: 5 }}
-      boxShadow="0 28px 65px rgba(42, 24, 8, 0.35)"
+      flex={1}
+      bg="var(--panel-strong)"
+      border="1px solid rgba(219, 189, 131, 0.18)"
+      borderRadius="32px"
+      p={{ base: 4, md: 6 }}
+      boxShadow="0 32px 80px rgba(0, 0, 0, 0.35)"
       overflowX="auto"
     >
       <Box minW="fit-content" mx="auto">
@@ -55,7 +57,7 @@ export function GameBoard({
               textAlign="center"
               fontSize="sm"
               fontWeight="700"
-              color="#f1dfb8"
+              color="rgba(245, 239, 225, 0.72)"
             >
               {label}
             </Text>
@@ -67,7 +69,7 @@ export function GameBoard({
                 textAlign="center"
                 fontSize="sm"
                 fontWeight="700"
-                color="#f1dfb8"
+                color="rgba(245, 239, 225, 0.72)"
               >
                 {rowIndex + 1}
               </Text>

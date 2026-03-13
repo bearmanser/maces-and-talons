@@ -1,31 +1,22 @@
-import {
-  Box,
-  Button,
-  Heading,
-  HStack,
-  Stack,
-  Text,
-  VStack,
-} from "@chakra-ui/react";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BoardNotesCard } from "./components/BoardNotesCard.tsx";
+import { Box, Button, HStack, Stack, Text, VStack } from "@chakra-ui/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BotSetupScreen } from "./components/BotSetupScreen.tsx";
+import { CaptureExamples } from "./components/CaptureExamples.tsx";
 import { GameBoard } from "./components/GameBoard.tsx";
-import { PlayerSummaryCard } from "./components/PlayerSummaryCard.tsx";
+import { LandingMenu } from "./components/LandingMenu.tsx";
+import { MultiplayerWaitingRoom } from "./components/MultiplayerWaitingRoom.tsx";
+import { RulesSummaryCard } from "./components/RulesSummaryCard.tsx";
+import { TraitorPanel } from "./components/TraitorPanel.tsx";
 import {
   resolvePieceMove,
   resolveShipMove,
   resolveTraitorAbility,
 } from "./game/actions.ts";
-import {
-  PLAYER_COLORS,
-  PLAYER_LABELS,
-  PLAYER_SURFACES,
-} from "./game/constants.ts";
+import { PLAYER_LABELS } from "./game/constants.ts";
 import { getPieceMoves, getShipMoves } from "./game/moves.ts";
 import {
   getPieceAt,
   getPieceRoleLabel,
-  getPlayerStats,
   getShipAt,
   getShipFootprint,
   isSelectablePiece,
@@ -52,6 +43,7 @@ import {
 } from "./multiplayer.ts";
 
 type AppMode = "solo" | "bot" | "multiplayer";
+type Screen = "menu" | "botSetup" | "multiplayerLobby" | "game";
 type ConnectionState =
   | "idle"
   | "creating"
@@ -75,17 +67,20 @@ const BOT_DIFFICULTY_OPTIONS: Array<{
   {
     value: "easy",
     label: "Easy",
-    description: "Shallow lookahead with more variety. Good for learning the rules and openings.",
+    description:
+      "Shallow lookahead with more variety. Good for learning the rules and openings.",
   },
   {
     value: "medium",
     label: "Medium",
-    description: "Shallow minimax with tighter move selection, so it feels steadier than easy without long waits.",
+    description:
+      "Shallow minimax with tighter move selection, so it feels steadier than easy without long waits.",
   },
   {
     value: "hard",
     label: "Hard",
-    description: "Two-ply minimax that looks ahead to your reply and plays much more deliberately.",
+    description:
+      "Two-ply minimax that looks ahead to your reply and plays much more deliberately.",
   },
 ];
 
@@ -151,24 +146,6 @@ const getSelectionHint = ({
   return "Select one of your pieces or ships to take a turn.";
 };
 
-const getTraitorStatus = (
-  player: Player,
-  gameState: GameState,
-  hasTraitorPiece: boolean
-) => {
-  if (hasTraitorPiece) {
-    return "On the board";
-  }
-
-  if (gameState.traitorClaimedBy !== player) {
-    return "Unclaimed";
-  }
-
-  return gameState.traitorAbilityUsed[player]
-    ? "Claimed and spent"
-    : "Claimed and ready";
-};
-
 const describeConnection = (connectionState: ConnectionState) => {
   switch (connectionState) {
     case "creating":
@@ -188,33 +165,95 @@ const describeConnection = (connectionState: ConnectionState) => {
   }
 };
 
+const getTraitorPanelCopy = (gameState: GameState) => {
+  const deployedTraitor = gameState.pieces.find(
+    (piece) => piece.kind === "traitor" && piece.owner
+  );
+
+  if (deployedTraitor?.owner) {
+    return {
+      status: "Traitor Deployed",
+      description: `${PLAYER_LABELS[deployedTraitor.owner]} already has the Traitor on the board.`,
+      instruction:
+        "The Traitor moves like a Hunter, can carry a mace, and still threatens the enemy Chief.",
+    };
+  }
+
+  if (!gameState.traitorClaimedBy && gameState.traitorTokenPosition) {
+    return {
+      status: "Token Unclaimed",
+      description: `Move a Chief adjacent to the Traitor token at ${formatSquare(
+        gameState.traitorTokenPosition
+      )} to secure it.`,
+      instruction:
+        "After claiming it, that side may replace one enemy Hunter with the Traitor on a later turn.",
+    };
+  }
+
+  if (
+    gameState.traitorClaimedBy &&
+    !gameState.traitorAbilityUsed[gameState.traitorClaimedBy]
+  ) {
+    return {
+      status: `${PLAYER_LABELS[gameState.traitorClaimedBy]} Ready`,
+      description: `${PLAYER_LABELS[gameState.traitorClaimedBy]} controls the token and can turn one enemy Hunter into the Traitor.`,
+      instruction:
+        gameState.currentTurn === gameState.traitorClaimedBy
+          ? "Use the button, then click an enemy Hunter to perform the conversion."
+          : `The ability is waiting for ${PLAYER_LABELS[gameState.traitorClaimedBy]}'s turn.`,
+    };
+  }
+
+  if (gameState.traitorClaimedBy) {
+    return {
+      status: "Ability Spent",
+      description: `${PLAYER_LABELS[gameState.traitorClaimedBy]} already used the once-per-side Traitor conversion.`,
+      instruction:
+        "The token is exhausted, so the rest of the match is about piece pressure, Dragon control, and mace routes.",
+    };
+  }
+
+  return {
+    status: "Watching The Field",
+    description: "The Traitor remains neutral until a Chief claims the token.",
+    instruction:
+      "Chief positioning is the trigger. Move next to the token first, then plan the conversion turn.",
+  };
+};
+
 function App() {
+  const initialRoomId = readRoomIdFromUrl();
   const [mode, setMode] = useState<AppMode>(() =>
-    readRoomIdFromUrl() ? "multiplayer" : "solo"
+    initialRoomId ? "multiplayer" : "solo"
+  );
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialRoomId ? "multiplayerLobby" : "menu"
   );
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>("medium");
   const [soloGameState, setSoloGameState] = useState<GameState>(() =>
     createInitialGameState()
   );
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [roomId, setRoomId] = useState<string | null>(() => readRoomIdFromUrl());
-  const [seatToken, setSeatToken] = useState<string | null>(() => {
-    const initialRoomId = readRoomIdFromUrl();
-    return initialRoomId ? getStoredSeatToken(initialRoomId) : null;
-  });
+  const [roomId, setRoomId] = useState<string | null>(() => initialRoomId);
+  const [seatToken, setSeatToken] = useState<string | null>(() =>
+    initialRoomId ? getStoredSeatToken(initialRoomId) : null
+  );
   const [multiplayerRoom, setMultiplayerRoom] = useState<RoomSnapshot | null>(
     null
   );
   const [multiplayerSeat, setMultiplayerSeat] = useState<Player | null>(null);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>(() => {
-      if (!readRoomIdFromUrl()) {
+      if (!initialRoomId) {
         return "idle";
       }
 
-      return getStoredSeatToken(readRoomIdFromUrl()!) ? "connecting" : "idle";
+      return getStoredSeatToken(initialRoomId) ? "connecting" : "idle";
     });
   const [multiplayerError, setMultiplayerError] = useState<string | null>(null);
+  const [multiplayerNotice, setMultiplayerNotice] = useState<string | null>(
+    null
+  );
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -227,16 +266,48 @@ function App() {
     BOT_DIFFICULTY_OPTIONS.find((option) => option.value === activeBotDifficulty)
       ?.description ?? "";
 
-  const gameState = mode === "solo" ? soloGameState : multiplayerRoom?.gameState ?? null;
+  const gameState =
+    mode === "solo" ? soloGameState : multiplayerRoom?.gameState ?? null;
+
+  const canInteract =
+    gameState !== null &&
+    !gameState.winner &&
+    (mode === "solo"
+      ? true
+      : multiplayerRoom?.started === true &&
+        multiplayerSeat === gameState.currentTurn &&
+        connectionState === "connected");
+
+  const activeSelection = useMemo(() => {
+    if (!gameState || !canInteract || !selection) {
+      return null;
+    }
+
+    if (
+      selection.type === "piece" &&
+      !gameState.pieces.some((piece) => piece.id === selection.id)
+    ) {
+      return null;
+    }
+
+    if (
+      selection.type === "ship" &&
+      !gameState.ships.some((ship) => ship.id === selection.id)
+    ) {
+      return null;
+    }
+
+    return selection;
+  }, [canInteract, gameState, selection]);
 
   const selectedPiece =
-    selection?.type === "piece" && gameState
-      ? gameState.pieces.find((piece) => piece.id === selection.id) ?? null
+    activeSelection?.type === "piece" && gameState
+      ? gameState.pieces.find((piece) => piece.id === activeSelection.id) ?? null
       : null;
 
   const selectedShip =
-    selection?.type === "ship" && gameState
-      ? gameState.ships.find((ship) => ship.id === selection.id) ?? null
+    activeSelection?.type === "ship" && gameState
+      ? gameState.ships.find((ship) => ship.id === activeSelection.id) ?? null
       : null;
 
   const pieceTargets = useMemo(
@@ -251,14 +322,14 @@ function App() {
 
   const traitorTargets = useMemo(
     () =>
-      selection?.type === "traitorAbility" && gameState
+      activeSelection?.type === "traitorAbility" && gameState
         ? gameState.pieces.filter(
             (piece) =>
               piece.kind === "hunter" &&
               piece.owner === otherPlayer(gameState.currentTurn)
           )
         : [],
-    [gameState, selection]
+    [activeSelection, gameState]
   );
 
   const pieceTargetKeys = useMemo(
@@ -310,15 +381,6 @@ function App() {
         piece.owner === otherPlayer(gameState.currentTurn)
     );
 
-  const canInteract =
-    gameState !== null &&
-    !gameState.winner &&
-    (mode === "solo"
-      ? true
-      : multiplayerRoom?.started === true &&
-        multiplayerSeat === gameState.currentTurn &&
-        connectionState === "connected");
-
   const selectionHint = useMemo(() => {
     if (!gameState) {
       if (mode === "bot") {
@@ -341,7 +403,11 @@ function App() {
         return "The board is temporarily locked while the client reconnects to the room.";
       }
 
-      if (multiplayerSeat && multiplayerSeat !== gameState.currentTurn && !gameState.winner) {
+      if (
+        multiplayerSeat &&
+        multiplayerSeat !== gameState.currentTurn &&
+        !gameState.winner
+      ) {
         if (mode === "bot") {
           return `The ${BOT_DIFFICULTY_LABELS[activeBotDifficulty].toLowerCase()} bot is choosing a move.`;
         }
@@ -352,13 +418,14 @@ function App() {
 
     return getSelectionHint({
       gameState,
-      selection,
+      selection: activeSelection,
       selectedPieceLabel: selectedPiece ? getPieceRoleLabel(selectedPiece) : null,
       selectedShipKind: selectedShip?.kind ?? null,
       traitorAvailable,
     });
   }, [
     activeBotDifficulty,
+    activeSelection,
     connectionState,
     gameState,
     mode,
@@ -367,18 +434,40 @@ function App() {
     roomId,
     selectedPiece,
     selectedShip,
-    selection,
     traitorAvailable,
   ]);
 
-  const dragonPiece = gameState?.pieces.find((piece) => piece.kind === "dragon") ?? null;
-  const marauderStats = gameState ? getPlayerStats(gameState, "marauders") : null;
-  const vikingStats = gameState ? getPlayerStats(gameState, "vikings") : null;
   const joinLink = roomId && !roomBot ? buildJoinUrl(roomId) : null;
+  const modeLabel =
+    mode === "solo"
+      ? "Solo hotseat"
+      : mode === "bot"
+      ? `${BOT_DIFFICULTY_LABELS[activeBotDifficulty]} bot match`
+      : roomId
+      ? `Multiplayer room ${roomId.toUpperCase()}`
+      : "Multiplayer room";
+  const turnLabel = gameState
+    ? gameState.winner
+      ? `${PLAYER_LABELS[gameState.winner]} victory`
+      : `${PLAYER_LABELS[gameState.currentTurn]} to move`
+    : "Waiting for board";
+  const traitorPanelCopy = gameState ? getTraitorPanelCopy(gameState) : null;
+  const onlineConnectionLabel =
+    mode === "solo" ? null : describeConnection(connectionState);
+  const activeScreen: Screen =
+    mode === "multiplayer"
+      ? multiplayerRoom?.started
+        ? "game"
+        : "multiplayerLobby"
+      : mode === "bot" && multiplayerRoom
+      ? "game"
+      : screen;
 
   const syncRoomSnapshot = (room: RoomSnapshot) => {
     setMultiplayerRoom(room);
-    setMode((current) => (current === "solo" ? current : room.bot ? "bot" : "multiplayer"));
+    setMode((current) =>
+      current === "solo" ? current : room.bot ? "bot" : "multiplayer"
+    );
 
     if (room.bot) {
       setBotDifficulty(room.bot.difficulty);
@@ -397,34 +486,8 @@ function App() {
     setMultiplayerSeat(null);
     setConnectionState("idle");
     setMultiplayerError(null);
+    setMultiplayerNotice(null);
   };
-
-  useEffect(() => {
-    if (!gameState) {
-      setSelection(null);
-      return;
-    }
-
-    if (!canInteract) {
-      setSelection(null);
-      return;
-    }
-
-    if (
-      selection?.type === "piece" &&
-      !gameState.pieces.some((piece) => piece.id === selection.id)
-    ) {
-      setSelection(null);
-      return;
-    }
-
-    if (
-      selection?.type === "ship" &&
-      !gameState.ships.some((ship) => ship.id === selection.id)
-    ) {
-      setSelection(null);
-    }
-  }, [canInteract, gameState, selection]);
 
   useEffect(() => {
     if (!isOnlineMode(mode) || !roomId || !seatToken) {
@@ -474,6 +537,7 @@ function App() {
           setMultiplayerSeat(message.seat);
           setConnectionState("connected");
           setMultiplayerError(null);
+          setMultiplayerNotice(null);
           return;
         }
 
@@ -488,6 +552,7 @@ function App() {
         }
 
         setMultiplayerError(message.message);
+        setMultiplayerNotice(null);
 
         if (!authenticatedRef.current) {
           reconnectAllowedRef.current = false;
@@ -540,6 +605,7 @@ function App() {
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       setMultiplayerError("The room connection is not ready yet. Please wait a moment.");
+      setMultiplayerNotice(null);
       setConnectionState("reconnecting");
       return false;
     }
@@ -548,13 +614,13 @@ function App() {
     return true;
   };
 
-  const handleReset = () => {
+  const handleResetSoloMatch = () => {
     setSoloGameState(createInitialGameState());
     setSelection(null);
   };
 
-  const handleBotDifficultyChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    setBotDifficulty(event.target.value as BotDifficulty);
+  const handleSelectBotDifficulty = (difficulty: BotDifficulty) => {
+    setBotDifficulty(difficulty);
   };
 
   const handleCopyJoinLink = async () => {
@@ -564,33 +630,33 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(joinLink);
-      setMultiplayerError("Join link copied to the clipboard.");
+      setMultiplayerNotice("Share link copied to the clipboard.");
+      setMultiplayerError(null);
     } catch {
       setMultiplayerError("Could not copy the join link automatically.");
+      setMultiplayerNotice(null);
     }
   };
 
-  const handleSwitchToSolo = () => {
+  const handleReturnToMenu = () => {
     clearNetworkSession();
     setMode("solo");
+    setScreen("menu");
     setSelection(null);
   };
 
-  const handleSwitchToMultiplayer = () => {
-    if (mode !== "multiplayer" || roomBot) {
-      clearNetworkSession();
-    }
-
-    setMode("multiplayer");
+  const handleStartSolo = () => {
+    clearNetworkSession();
+    setMode("solo");
+    setSoloGameState(createInitialGameState());
+    setScreen("game");
     setSelection(null);
   };
 
-  const handleSwitchToBot = () => {
-    if (mode !== "bot" || !roomBot) {
-      clearNetworkSession();
-    }
-
+  const handleOpenBotSetup = () => {
+    clearNetworkSession();
     setMode("bot");
+    setScreen("botSetup");
     setSelection(null);
   };
 
@@ -600,8 +666,10 @@ function App() {
     }
 
     setMode("multiplayer");
+    setScreen("multiplayerLobby");
     setConnectionState("creating");
     setMultiplayerError(null);
+    setMultiplayerNotice(null);
 
     try {
       const session = await createRoom();
@@ -620,6 +688,7 @@ function App() {
       setMultiplayerError(
         error instanceof Error ? error.message : "Could not create a room."
       );
+      setMultiplayerNotice(null);
     }
   };
 
@@ -629,8 +698,10 @@ function App() {
     }
 
     setMode("bot");
+    setScreen("botSetup");
     setConnectionState("creating");
     setMultiplayerError(null);
+    setMultiplayerNotice(null);
 
     try {
       const session = await createBotRoom(botDifficulty);
@@ -649,6 +720,7 @@ function App() {
       setMultiplayerError(
         error instanceof Error ? error.message : "Could not create a bot match."
       );
+      setMultiplayerNotice(null);
     }
   };
 
@@ -660,6 +732,7 @@ function App() {
     setMode("multiplayer");
     setConnectionState("joining");
     setMultiplayerError(null);
+    setMultiplayerNotice(null);
 
     try {
       const session = await joinRoom(roomId);
@@ -675,7 +748,16 @@ function App() {
       setMultiplayerError(
         error instanceof Error ? error.message : "Could not join that room."
       );
+      setMultiplayerNotice(null);
     }
+  };
+
+  const handleStartMultiplayer = () => {
+    clearNetworkSession();
+    setMode("multiplayer");
+    setScreen("multiplayerLobby");
+    setSelection(null);
+    void handleCreateRoom();
   };
 
   const handleTraitorToggle = () => {
@@ -696,7 +778,7 @@ function App() {
     const position = { row, col };
     const positionKey = toPositionKey(position);
 
-    if (selection?.type === "traitorAbility") {
+    if (activeSelection?.type === "traitorAbility") {
       const targetHunterId = traitorTargetMap.get(positionKey);
 
       if (targetHunterId) {
@@ -713,15 +795,15 @@ function App() {
       }
     }
 
-    if (selection?.type === "piece" && pieceTargetKeys.has(positionKey)) {
+    if (activeSelection?.type === "piece" && pieceTargetKeys.has(positionKey)) {
       if (mode === "solo") {
         setSoloGameState((current) =>
-          resolvePieceMove(current, selection.id, position)
+          resolvePieceMove(current, activeSelection.id, position)
         );
       } else {
         sendMultiplayerMessage({
           type: "move_piece",
-          pieceId: selection.id,
+          pieceId: activeSelection.id,
           target: position,
         });
       }
@@ -730,13 +812,15 @@ function App() {
       return;
     }
 
-    if (selection?.type === "ship" && shipTargetKeys.has(positionKey)) {
+    if (activeSelection?.type === "ship" && shipTargetKeys.has(positionKey)) {
       if (mode === "solo") {
-        setSoloGameState((current) => resolveShipMove(current, selection.id, position));
+        setSoloGameState((current) =>
+          resolveShipMove(current, activeSelection.id, position)
+        );
       } else {
         sendMultiplayerMessage({
           type: "move_ship",
-          shipId: selection.id,
+          shipId: activeSelection.id,
           target: position,
         });
       }
@@ -769,387 +853,169 @@ function App() {
     setSelection(null);
   };
 
-  return (
-    <Box
-      minH="100vh"
-      bg="linear-gradient(180deg, #efe3c1 0%, #d8c39a 45%, #8b6a44 100%)"
-      color="#1d1a16"
-      px={{ base: 4, md: 8 }}
-      py={{ base: 6, md: 10 }}
-      css={{
-        "--panel-bg": "rgba(244, 236, 213, 0.9)",
-        "--panel-border": "rgba(86, 60, 32, 0.28)",
-        "--land-light": "#d8ba78",
-        "--land-dark": "#b89154",
-        "--water-light": "#5d8494",
-        "--water-dark": "#2d5565",
-        "--highlight": "#f5dd63",
-        "--ink-soft": "#4e3b22",
-      }}
-    >
-      <VStack gap={6} maxW="1200px" mx="auto" align="stretch">
+  const isBotSetupBusy =
+    connectionState === "creating" ||
+    connectionState === "connecting" ||
+    connectionState === "joining";
+  const isMultiplayerLobbyBusy =
+    connectionState === "creating" ||
+    connectionState === "joining" ||
+    connectionState === "connecting";
+
+  const renderScreen = () => {
+    if (activeScreen === "menu") {
+      return (
+        <LandingMenu
+          onPlaySolo={handleStartSolo}
+          onPlayBot={handleOpenBotSetup}
+          onPlayMultiplayer={handleStartMultiplayer}
+        />
+      );
+    }
+
+    if (activeScreen === "botSetup") {
+      return (
+        <BotSetupScreen
+          difficulty={botDifficulty}
+          options={BOT_DIFFICULTY_OPTIONS}
+          busy={isBotSetupBusy}
+          error={multiplayerError}
+          onSelectDifficulty={handleSelectBotDifficulty}
+          onStart={handleCreateBotRoom}
+          onBack={handleReturnToMenu}
+        />
+      );
+    }
+
+    if (activeScreen === "multiplayerLobby") {
+      return (
+        <MultiplayerWaitingRoom
+          roomId={roomId}
+          joinLink={joinLink}
+          seatLabel={multiplayerSeat ? PLAYER_LABELS[multiplayerSeat] : null}
+          connectionLabel={describeConnection(connectionState)}
+          roomReady={multiplayerRoom?.started ?? false}
+          vikingsSeatStatus={describeSeatStatus(multiplayerRoom, "vikings")}
+          maraudersSeatStatus={describeSeatStatus(multiplayerRoom, "marauders")}
+          canJoinRoom={Boolean(roomId && !seatToken)}
+          busy={isMultiplayerLobbyBusy}
+          error={multiplayerError}
+          notice={multiplayerNotice}
+          onCopyLink={handleCopyJoinLink}
+          onJoinRoom={handleJoinRoom}
+          onCreateRoom={() => {
+            void handleCreateRoom();
+          }}
+          onBackToMenu={handleReturnToMenu}
+        />
+      );
+    }
+
+    if (!gameState || !traitorPanelCopy) {
+      return (
         <VStack
-          gap={4}
+          maxW="900px"
+          mx="auto"
           align="stretch"
+          gap={4}
           bg="var(--panel-bg)"
           border="1px solid"
           borderColor="var(--panel-border)"
           borderRadius="28px"
-          p={{ base: 5, md: 7 }}
-          boxShadow="0 22px 50px rgba(58, 34, 11, 0.16)"
-          backdropFilter="blur(8px)"
+          p={{ base: 6, md: 7 }}
         >
-          <HStack justify="space-between" align="start" flexWrap="wrap" gap={4}>
-            <VStack gap={3} align="start" maxW="760px">
-              <Text
-                textTransform="uppercase"
-                letterSpacing="0.28em"
-                fontSize="xs"
-                color="#705633"
-                fontWeight="700"
-              >
-                Maces & Talons
-              </Text>
-              <Heading
-                as="h1"
-                fontSize={{ base: "3xl", md: "5xl" }}
-                lineHeight="1"
-                fontFamily="'Palatino Linotype', 'Book Antiqua', serif"
-              >
-                Opening rules prototype
-              </Heading>
-              <Text
-                maxW="760px"
-                fontSize={{ base: "sm", md: "md" }}
-                color="var(--ink-soft)"
-              >
-                Play the opening as local hotseat, challenge a backend minimax bot,
-                or move the trusted game state to the backend and share a join link
-                for a live match. Multiplayer seats reconnect with signed tokens,
-                and bot matches run through the same room flow.
-              </Text>
-            </VStack>
+          <Text
+            fontSize="xs"
+            textTransform="uppercase"
+            letterSpacing="0.18em"
+            color="var(--text-muted)"
+            fontWeight="700"
+          >
+            Loading Match
+          </Text>
+          <Text color="var(--text-muted)">
+            Preparing the board and reconnecting to the room.
+          </Text>
+        </VStack>
+      );
+    }
 
-            <VStack
-              gap={2}
-              align="stretch"
-              minW={{ base: "100%", md: "280px" }}
-              bg={
-                gameState
-                  ? PLAYER_SURFACES[gameState.currentTurn]
-                  : "rgba(40, 75, 99, 0.12)"
-              }
-              border="1px solid rgba(86, 60, 32, 0.18)"
-              borderRadius="20px"
-              p={4}
+    return (
+      <VStack maxW="1320px" mx="auto" align="stretch" gap={6}>
+        <Stack
+          direction={{ base: "column", lg: "row" }}
+          justify="space-between"
+          align={{ base: "start", lg: "center" }}
+          gap={4}
+        >
+          <VStack align="start" gap={1}>
+            <Text
+              fontSize="xs"
+              textTransform="uppercase"
+              letterSpacing="0.24em"
+              color="var(--text-muted)"
+              fontWeight="700"
             >
-              <Text
-                fontSize="xs"
-                textTransform="uppercase"
-                letterSpacing="0.18em"
-                color="#705633"
-              >
-                {mode === "solo" ? "Mode" : mode === "bot" ? "Opponent" : "Room"}
-              </Text>
-              <Text fontSize="xl" fontWeight="800" color="#3f2f21">
-                {mode === "solo"
-                  ? "Solo Hotseat"
-                  : mode === "bot"
-                  ? roomBot
-                    ? `${BOT_DIFFICULTY_LABELS[roomBot.difficulty]} Bot Match`
-                    : "Bot Lobby"
-                  : roomId
-                  ? `Room ${roomId.toUpperCase()}`
-                  : "Multiplayer Lobby"}
-              </Text>
-              <Text fontSize="sm" color="var(--ink-soft)">
-                {gameState
-                  ? gameState.winner
-                    ? `${PLAYER_LABELS[gameState.winner]} Won`
-                    : PLAYER_LABELS[gameState.currentTurn]
-                  : mode === "bot"
-                  ? "Create a bot match"
-                  : "Create or join a room"}
-              </Text>
-              {mode === "multiplayer" ? (
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  {describeConnection(connectionState)}
-                  {multiplayerSeat ? ` as ${PLAYER_LABELS[multiplayerSeat]}` : ""}
-                </Text>
-              ) : mode === "bot" ? (
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  {roomBot
-                    ? `${BOT_DIFFICULTY_LABELS[roomBot.difficulty]} minimax bot controls ${PLAYER_LABELS[roomBot.seat]}. ${describeConnection(connectionState)}.`
-                    : "Choose a difficulty and start a backend minimax match."}
-                </Text>
-              ) : (
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  Move both sides locally on the same board.
-                </Text>
-              )}
-            </VStack>
-          </HStack>
+              Maces & Talons
+            </Text>
+            <Text fontSize="lg" color="var(--text-muted)">
+              {modeLabel}
+              {mode === "bot" ? ` - ${botDifficultyDescription}` : ""}
+            </Text>
+          </VStack>
 
-          <HStack gap={3} flexWrap="wrap" align="center">
-            <Button
-              onClick={handleSwitchToSolo}
-              bg={mode === "solo" ? "#3f2f21" : "#eedbb3"}
-              color={mode === "solo" ? "#f7ecd7" : "#3b2814"}
-              border="1px solid rgba(86, 60, 32, 0.2)"
-              _hover={{ bg: mode === "solo" ? "#2f2217" : "#e8d0a0" }}
-            >
-              Play Solo
-            </Button>
-            <Button
-              onClick={handleSwitchToBot}
-              bg={mode === "bot" ? "#3f2f21" : "#eedbb3"}
-              color={mode === "bot" ? "#f7ecd7" : "#3b2814"}
-              border="1px solid rgba(86, 60, 32, 0.2)"
-              _hover={{ bg: mode === "bot" ? "#2f2217" : "#e8d0a0" }}
-            >
-              Play Bot
-            </Button>
-            <Button
-              onClick={handleSwitchToMultiplayer}
-              bg={mode === "multiplayer" ? "#3f2f21" : "#eedbb3"}
-              color={mode === "multiplayer" ? "#f7ecd7" : "#3b2814"}
-              border="1px solid rgba(86, 60, 32, 0.2)"
-              _hover={{ bg: mode === "multiplayer" ? "#2f2217" : "#e8d0a0" }}
-            >
-              Play Multiplayer
-            </Button>
-            {mode === "bot" ? (
-              <select
-                value={botDifficulty}
-                onChange={handleBotDifficultyChange}
-                style={{
-                  background: "rgba(255, 248, 232, 0.92)",
-                  color: "#3b2814",
-                  border: "1px solid rgba(86, 60, 32, 0.2)",
-                  borderRadius: "12px",
-                  padding: "0.5rem 0.75rem",
-                  minWidth: "160px",
-                  fontWeight: 700,
-                  fontFamily: "inherit",
-                }}
+          <HStack gap={3} flexWrap="wrap">
+            {mode === "solo" ? (
+              <Button
+                onClick={handleResetSoloMatch}
+                bg="var(--button-ghost)"
+                color="#f5efe1"
+                border="1px solid rgba(219, 189, 131, 0.2)"
+                _hover={{ bg: "var(--button-ghost-hover)" }}
               >
-                {BOT_DIFFICULTY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                Reset Match
+              </Button>
             ) : null}
             {mode === "bot" ? (
               <Button
-                onClick={handleCreateBotRoom}
-                bg="#8f2d18"
-                color="#f8edda"
-                _hover={{ bg: "#742515" }}
+                onClick={handleOpenBotSetup}
+                bg="var(--button-ghost)"
+                color="#f5efe1"
+                border="1px solid rgba(219, 189, 131, 0.2)"
+                _hover={{ bg: "var(--button-ghost-hover)" }}
               >
-                {roomId && roomBot ? "New Bot Match" : "Start Bot Match"}
-              </Button>
-            ) : null}
-            {mode === "multiplayer" && !roomId ? (
-              <Button
-                onClick={handleCreateRoom}
-                bg="#8f2d18"
-                color="#f8edda"
-                _hover={{ bg: "#742515" }}
-              >
-                Create Game
-              </Button>
-            ) : null}
-            {mode === "multiplayer" && roomId && !seatToken ? (
-              <Button
-                onClick={handleJoinRoom}
-                bg="#284b63"
-                color="#f3eadb"
-                _hover={{ bg: "#203b4e" }}
-              >
-                Join Game
+                New Bot Match
               </Button>
             ) : null}
             {mode === "multiplayer" && joinLink ? (
               <Button
                 onClick={handleCopyJoinLink}
-                bg="#eedbb3"
-                color="#3b2814"
-                border="1px solid rgba(86, 60, 32, 0.2)"
-                _hover={{ bg: "#e8d0a0" }}
+                bg="var(--button-ghost)"
+                color="#f5efe1"
+                border="1px solid rgba(219, 189, 131, 0.2)"
+                _hover={{ bg: "var(--button-ghost-hover)" }}
               >
-                Copy Join Link
+                Copy Share Link
               </Button>
             ) : null}
-            {mode === "solo" ? (
-              <Button
-                onClick={handleReset}
-                bg="#3f2f21"
-                color="#f7ecd7"
-                _hover={{ bg: "#2f2217" }}
-              >
-                Reset Match
-              </Button>
-            ) : null}
+            <Button
+              onClick={handleReturnToMenu}
+              bg="#dbc08b"
+              color="#18120d"
+              fontWeight="800"
+              _hover={{ bg: "#e7cc97" }}
+            >
+              Main Menu
+            </Button>
           </HStack>
+        </Stack>
 
-          {mode === "bot" ? (
-            <Stack direction={{ base: "column", lg: "row" }} gap={4}>
-              <VStack
-                flex={1}
-                align="stretch"
-                gap={2}
-                bg="rgba(255, 248, 232, 0.56)"
-                border="1px solid rgba(86, 60, 32, 0.16)"
-                borderRadius="20px"
-                p={4}
-              >
-                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
-                  Bot Flow
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  {roomBot
-                    ? `You play ${multiplayerSeat ? PLAYER_LABELS[multiplayerSeat] : PLAYER_LABELS.vikings}. The backend controls ${PLAYER_LABELS[roomBot.seat]} and calculates replies with minimax search.`
-                    : "Start a bot room to play Vikings against a backend-controlled Marauders side."}
-                </Text>
-                {roomId && roomBot ? (
-                  <Text fontSize="sm" color="var(--ink-soft)" fontFamily="mono">
-                    Room {roomId.toUpperCase()} stays local to this session for reconnects.
-                  </Text>
-                ) : null}
-              </VStack>
-              <VStack
-                flex={1}
-                align="stretch"
-                gap={2}
-                bg="rgba(255, 248, 232, 0.56)"
-                border="1px solid rgba(86, 60, 32, 0.16)"
-                borderRadius="20px"
-                p={4}
-              >
-                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
-                  Difficulty
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  {BOT_DIFFICULTY_LABELS[activeBotDifficulty]}: {botDifficultyDescription}
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  Connection: {describeConnection(connectionState)}
-                </Text>
-              </VStack>
-            </Stack>
-          ) : mode === "multiplayer" ? (
-            <Stack direction={{ base: "column", lg: "row" }} gap={4}>
-              <VStack
-                flex={1}
-                align="stretch"
-                gap={2}
-                bg="rgba(255, 248, 232, 0.56)"
-                border="1px solid rgba(86, 60, 32, 0.16)"
-                borderRadius="20px"
-                p={4}
-              >
-                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
-                  Room Flow
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  {roomId
-                    ? `Share ${joinLink ?? "the room link"} and the backend will hold the trusted state.`
-                    : "Create a room to become Vikings, then share the generated join link with the second player."}
-                </Text>
-                {roomId ? (
-                  <Text fontSize="sm" color="var(--ink-soft)" fontFamily="mono">
-                    {joinLink}
-                  </Text>
-                ) : null}
-              </VStack>
-              <VStack
-                flex={1}
-                align="stretch"
-                gap={2}
-                bg="rgba(255, 248, 232, 0.56)"
-                border="1px solid rgba(86, 60, 32, 0.16)"
-                borderRadius="20px"
-                p={4}
-              >
-                <Text fontSize="xs" textTransform="uppercase" letterSpacing="0.16em" color="#705633">
-                  Seats
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  Vikings: {describeSeatStatus(multiplayerRoom, "vikings")}
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  Marauders: {describeSeatStatus(multiplayerRoom, "marauders")}
-                </Text>
-                <Text fontSize="sm" color="var(--ink-soft)">
-                  Game start: {multiplayerRoom?.started ? "ready" : "waiting for both players"}
-                </Text>
-              </VStack>
-            </Stack>
-          ) : null}
+        <RulesSummaryCard />
 
-          <HStack gap={4} flexWrap="wrap" fontSize="sm" color="var(--ink-soft)">
-            <HStack gap={2}>
-              <Box boxSize="14px" borderRadius="4px" bg="var(--land-dark)" />
-              <Text>Land</Text>
-            </HStack>
-            <HStack gap={2}>
-              <Box boxSize="14px" borderRadius="4px" bg="var(--water-dark)" />
-              <Text>Water</Text>
-            </HStack>
-            <HStack gap={2}>
-              <Box
-                boxSize="14px"
-                borderRadius="4px"
-                bg="rgba(143, 45, 24, 0.42)"
-              />
-              <Text>Ship squares</Text>
-            </HStack>
-            <HStack gap={2}>
-              <Box
-                boxSize="14px"
-                borderRadius="999px"
-                bg="#f1ca5e"
-                border="1px solid rgba(68, 44, 8, 0.45)"
-              />
-              <Text>Mace</Text>
-            </HStack>
-          </HStack>
-
-          {gameState ? (
-            <HStack gap={3} flexWrap="wrap">
-              <Button
-                onClick={handleTraitorToggle}
-                disabled={!traitorAvailable || !canInteract || Boolean(gameState.winner)}
-                bg={selection?.type === "traitorAbility" ? "#f0b66a" : "#eedbb3"}
-                color="#3b2814"
-                border="1px solid rgba(86, 60, 32, 0.2)"
-                _hover={{
-                  bg:
-                    selection?.type === "traitorAbility" ? "#ecaa54" : "#e8d0a0",
-                }}
-              >
-                {selection?.type === "traitorAbility"
-                  ? "Cancel Traitor"
-                  : "Activate Traitor"}
-              </Button>
-              <Text fontSize="sm" color="var(--ink-soft)">
-                {selectionHint}
-              </Text>
-            </HStack>
-          ) : null}
-
-          {multiplayerError ? (
-            <Text fontSize="sm" color="#8f2d18">
-              {multiplayerError}
-            </Text>
-          ) : null}
-        </VStack>
-
-        {gameState ? (
+        <Stack direction={{ base: "column", xl: "row" }} gap={5} align="stretch">
           <GameBoard
             gameState={gameState}
-            selection={selection}
+            selection={activeSelection}
             pieceTargetKeys={pieceTargetKeys}
             shipTargetKeys={shipTargetKeys}
             shipFootprintKeys={shipFootprintKeys}
@@ -1157,64 +1023,95 @@ function App() {
             canInteract={canInteract}
             onSquareClick={handleSquareClick}
           />
-        ) : (
-          <VStack
-            align="stretch"
-            gap={3}
-            bg="rgba(58, 34, 11, 0.92)"
-            color="#f3e8cb"
-            borderRadius="30px"
-            p={{ base: 5, md: 6 }}
-            boxShadow="0 28px 65px rgba(42, 24, 8, 0.35)"
-          >
-            <Heading as="h2" fontSize="2xl" fontFamily="'Palatino Linotype', 'Book Antiqua', serif">
-              {mode === "bot" ? "Bot Lobby" : "Multiplayer Lobby"}
-            </Heading>
-            <Text color="rgba(243, 232, 203, 0.82)">
-              {mode === "bot"
-                ? "Choose a difficulty and start a backend minimax match. You play Vikings and the bot controls Marauders."
-                : "Create a room to seat Vikings, or open a shared join link to claim the other side."}
-            </Text>
-          </VStack>
-        )}
+          <TraitorPanel
+            modeLabel={modeLabel}
+            turnLabel={turnLabel}
+            connectionLabel={onlineConnectionLabel}
+            matchStatus={gameState.status}
+            selectionHint={selectionHint}
+            traitorStatus={traitorPanelCopy.status}
+            traitorDescription={traitorPanelCopy.description}
+            traitorInstruction={traitorPanelCopy.instruction}
+            traitorButtonLabel={
+              activeSelection?.type === "traitorAbility"
+                ? "Cancel Traitor"
+                : "Activate Traitor"
+            }
+            traitorButtonDisabled={
+              !traitorAvailable || !canInteract || Boolean(gameState.winner)
+            }
+            traitorButtonActive={activeSelection?.type === "traitorAbility"}
+            onTraitorToggle={handleTraitorToggle}
+          />
+        </Stack>
 
-        {gameState && marauderStats && vikingStats ? (
-          <Stack direction={{ base: "column", lg: "row" }} gap={4} align="stretch">
-            <PlayerSummaryCard
-              title="Marauders"
-              color={PLAYER_COLORS.marauders}
-              hunters={marauderStats.hunters}
-              maceBearers={marauderStats.maceBearers}
-              dragonControlled={gameState.dragonController === "marauders"}
-              traitorStatus={getTraitorStatus(
-                "marauders",
-                gameState,
-                marauderStats.hasTraitorPiece
-              )}
-            />
-            <BoardNotesCard
-              dragonSquare={dragonPiece ? formatSquare(dragonPiece.position) : "the board"}
-              traitorSquare={
-                gameState.traitorTokenPosition
-                  ? formatSquare(gameState.traitorTokenPosition)
-                  : "a claimed position"
-              }
-            />
-            <PlayerSummaryCard
-              title="Vikings"
-              color={PLAYER_COLORS.vikings}
-              hunters={vikingStats.hunters}
-              maceBearers={vikingStats.maceBearers}
-              dragonControlled={gameState.dragonController === "vikings"}
-              traitorStatus={getTraitorStatus(
-                "vikings",
-                gameState,
-                vikingStats.hasTraitorPiece
-              )}
-            />
-          </Stack>
+        <CaptureExamples />
+
+        {multiplayerNotice ? (
+          <Text color="#d8f2d0" fontSize="sm">
+            {multiplayerNotice}
+          </Text>
+        ) : null}
+
+        {multiplayerError ? (
+          <Text fontSize="sm" color="#ffb39a">
+            {multiplayerError}
+          </Text>
         ) : null}
       </VStack>
+    );
+  };
+
+  return (
+    <Box
+      minH="100vh"
+      bg="linear-gradient(180deg, #4a311d 0%, #1d140d 38%, #5b4329 100%)"
+      color="#f5efe1"
+      px={{ base: 4, md: 8 }}
+      py={{ base: 6, md: 10 }}
+      position="relative"
+      overflow="hidden"
+      css={{
+        "--panel-bg": "rgba(42, 28, 17, 0.84)",
+        "--panel-strong": "linear-gradient(180deg, rgba(72, 51, 31, 0.96) 0%, rgba(24, 15, 10, 0.98) 100%)",
+        "--panel-soft": "rgba(244, 232, 208, 0.05)",
+        "--button-ghost": "rgba(95, 70, 47, 0.76)",
+        "--button-ghost-hover": "rgba(120, 89, 60, 0.86)",
+        "--panel-border": "rgba(219, 189, 131, 0.18)",
+        "--land-light": "#b79258",
+        "--land-dark": "#876137",
+        "--water-light": "#6a7f88",
+        "--water-dark": "#394d57",
+        "--highlight": "#e4c46d",
+        "--ink-soft": "rgba(241, 230, 206, 0.8)",
+        "--text-muted": "rgba(241, 230, 206, 0.72)",
+      }}
+    >
+      <Box
+        position="absolute"
+        top="-120px"
+        left="-80px"
+        w="380px"
+        h="380px"
+        borderRadius="999px"
+        bg="rgba(168, 122, 69, 0.18)"
+        filter="blur(80px)"
+        pointerEvents="none"
+      />
+      <Box
+        position="absolute"
+        right="-60px"
+        bottom="-140px"
+        w="420px"
+        h="420px"
+        borderRadius="999px"
+        bg="rgba(92, 110, 121, 0.14)"
+        filter="blur(100px)"
+        pointerEvents="none"
+      />
+      <Box position="relative" zIndex={1}>
+        {renderScreen()}
+      </Box>
     </Box>
   );
 }
