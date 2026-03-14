@@ -76,7 +76,7 @@ export function LandingMenu({
           textAlign="center"
           textShadow="0 10px 30px rgba(0, 0, 0, 0.28)"
         >
-          Maces & Talons
+          Maces and Talons
         </Heading>
       </VStack>
 

@@ -30,7 +30,7 @@ def read_csv_env(name: str, default: list[str]) -> list[str]:
     return [value.strip() for value in values if value.strip()]
 
 
-app = FastAPI(title="Maces & Talons Backend")
+app = FastAPI(title="Maces and Talons Backend")
 room_manager = RoomManager()
 
 allowed_origins = read_csv_env(

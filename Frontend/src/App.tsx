@@ -174,7 +174,9 @@ const getTraitorPanelCopy = (gameState: GameState) => {
   if (deployedTraitor?.owner) {
     return {
       status: "Traitor Deployed",
-      description: `${PLAYER_LABELS[deployedTraitor.owner]} already has the Traitor on the board.`,
+      description: `${
+        PLAYER_LABELS[deployedTraitor.owner]
+      } already has the Traitor on the board.`,
       instruction:
         "The Traitor moves like a Hunter, can carry a mace, and still threatens the enemy Chief.",
     };
@@ -197,18 +199,24 @@ const getTraitorPanelCopy = (gameState: GameState) => {
   ) {
     return {
       status: `${PLAYER_LABELS[gameState.traitorClaimedBy]} Ready`,
-      description: `${PLAYER_LABELS[gameState.traitorClaimedBy]} controls the token and can turn one enemy Hunter into the Traitor.`,
+      description: `${
+        PLAYER_LABELS[gameState.traitorClaimedBy]
+      } controls the token and can turn one enemy Hunter into the Traitor.`,
       instruction:
         gameState.currentTurn === gameState.traitorClaimedBy
           ? "Use the button, then click an enemy Hunter to perform the conversion."
-          : `The ability is waiting for ${PLAYER_LABELS[gameState.traitorClaimedBy]}'s turn.`,
+          : `The ability is waiting for ${
+              PLAYER_LABELS[gameState.traitorClaimedBy]
+            }'s turn.`,
     };
   }
 
   if (gameState.traitorClaimedBy) {
     return {
       status: "Ability Spent",
-      description: `${PLAYER_LABELS[gameState.traitorClaimedBy]} already used the once-per-side Traitor conversion.`,
+      description: `${
+        PLAYER_LABELS[gameState.traitorClaimedBy]
+      } already used the once-per-side Traitor conversion.`,
       instruction:
         "The token is exhausted, so the rest of the match is about piece pressure, Dragon control, and mace routes.",
     };
@@ -243,14 +251,15 @@ function App() {
     null
   );
   const [multiplayerSeat, setMultiplayerSeat] = useState<Player | null>(null);
-  const [connectionState, setConnectionState] =
-    useState<ConnectionState>(() => {
+  const [connectionState, setConnectionState] = useState<ConnectionState>(
+    () => {
       if (!initialRoomId) {
         return "idle";
       }
 
       return getStoredSeatToken(initialRoomId) ? "connecting" : "idle";
-    });
+    }
+  );
   const [multiplayerError, setMultiplayerError] = useState<string | null>(null);
   const [multiplayerNotice, setMultiplayerNotice] = useState<string | null>(
     null
@@ -266,8 +275,9 @@ function App() {
   const roomBot = multiplayerRoom?.bot ?? null;
   const activeBotDifficulty = roomBot?.difficulty ?? botDifficulty;
   const botDifficultyDescription =
-    BOT_DIFFICULTY_OPTIONS.find((option) => option.value === activeBotDifficulty)
-      ?.description ?? "";
+    BOT_DIFFICULTY_OPTIONS.find(
+      (option) => option.value === activeBotDifficulty
+    )?.description ?? "";
 
   const gameState =
     mode === "solo"
@@ -307,7 +317,8 @@ function App() {
 
   const selectedPiece =
     activeSelection?.type === "piece" && gameState
-      ? gameState.pieces.find((piece) => piece.id === activeSelection.id) ?? null
+      ? gameState.pieces.find((piece) => piece.id === activeSelection.id) ??
+        null
       : null;
 
   const selectedShip =
@@ -316,12 +327,14 @@ function App() {
       : null;
 
   const pieceTargets = useMemo(
-    () => (selectedPiece && gameState ? getPieceMoves(selectedPiece, gameState) : []),
+    () =>
+      selectedPiece && gameState ? getPieceMoves(selectedPiece, gameState) : [],
     [gameState, selectedPiece]
   );
 
   const shipTargets = useMemo(
-    () => (selectedShip && gameState ? getShipMoves(selectedShip, gameState) : []),
+    () =>
+      selectedShip && gameState ? getShipMoves(selectedShip, gameState) : [],
     [gameState, selectedShip]
   );
 
@@ -414,7 +427,9 @@ function App() {
         !gameState.winner
       ) {
         if (mode === "bot") {
-          return `The ${BOT_DIFFICULTY_LABELS[activeBotDifficulty].toLowerCase()} bot is choosing a move.`;
+          return `The ${BOT_DIFFICULTY_LABELS[
+            activeBotDifficulty
+          ].toLowerCase()} bot is choosing a move.`;
         }
 
         return `Waiting for ${PLAYER_LABELS[gameState.currentTurn]} to move.`;
@@ -424,7 +439,9 @@ function App() {
     return getSelectionHint({
       gameState,
       selection: activeSelection,
-      selectedPieceLabel: selectedPiece ? getPieceRoleLabel(selectedPiece) : null,
+      selectedPieceLabel: selectedPiece
+        ? getPieceRoleLabel(selectedPiece)
+        : null,
       selectedShipKind: selectedShip?.kind ?? null,
       traitorAvailable,
     });
@@ -502,7 +519,6 @@ function App() {
       authenticatedRef.current = false;
       reconnectAllowedRef.current = false;
 
-
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -534,7 +550,9 @@ function App() {
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
-        socket.send(JSON.stringify({ type: "auth", seatToken } satisfies ClientMessage));
+        socket.send(
+          JSON.stringify({ type: "auth", seatToken } satisfies ClientMessage)
+        );
       });
 
       socket.addEventListener("message", (event) => {
@@ -578,7 +596,6 @@ function App() {
           socketRef.current = null;
         }
 
-
         if (cancelled || !reconnectAllowedRef.current) {
           return;
         }
@@ -613,7 +630,9 @@ function App() {
     const socket = socketRef.current;
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      setMultiplayerError("The room connection is not ready yet. Please wait a moment.");
+      setMultiplayerError(
+        "The room connection is not ready yet. Please wait a moment."
+      );
       setMultiplayerNotice(null);
       setConnectionState("reconnecting");
       return false;
@@ -623,7 +642,9 @@ function App() {
       socket.send(JSON.stringify(message));
       return true;
     } catch {
-      setMultiplayerError("The room connection dropped before the move could be sent.");
+      setMultiplayerError(
+        "The room connection dropped before the move could be sent."
+      );
       setMultiplayerNotice(null);
       setConnectionState("reconnecting");
       return false;
@@ -833,7 +854,9 @@ function App() {
 
         const nextState = resolveTraitorAbility(gameState, targetHunterId);
 
-        if (submitOnlineAction(nextState, { type: "use_traitor", targetHunterId })) {
+        if (
+          submitOnlineAction(nextState, { type: "use_traitor", targetHunterId })
+        ) {
           setSelection(null);
         }
 
@@ -850,7 +873,11 @@ function App() {
         return;
       }
 
-      const nextState = resolvePieceMove(gameState, activeSelection.id, position);
+      const nextState = resolvePieceMove(
+        gameState,
+        activeSelection.id,
+        position
+      );
 
       if (
         submitOnlineAction(nextState, {
@@ -874,7 +901,11 @@ function App() {
         return;
       }
 
-      const nextState = resolveShipMove(gameState, activeSelection.id, position);
+      const nextState = resolveShipMove(
+        gameState,
+        activeSelection.id,
+        position
+      );
 
       if (
         submitOnlineAction(nextState, {
@@ -901,7 +932,11 @@ function App() {
       return;
     }
 
-    if (!clickedPiece && clickedShip && isSelectableShip(clickedShip, gameState)) {
+    if (
+      !clickedPiece &&
+      clickedShip &&
+      isSelectableShip(clickedShip, gameState)
+    ) {
       setSelection((current) =>
         current?.type === "ship" && current.id === clickedShip.id
           ? null
@@ -1016,7 +1051,7 @@ function App() {
               color="var(--text-muted)"
               fontWeight="700"
             >
-              Maces & Talons
+              Maces and Talons
             </Text>
             <Text fontSize="lg" color="var(--text-muted)">
               {modeLabel}
@@ -1072,7 +1107,11 @@ function App() {
 
         <RulesSummaryCard />
 
-        <Stack direction={{ base: "column", xl: "row" }} gap={5} align="stretch">
+        <Stack
+          direction={{ base: "column", xl: "row" }}
+          gap={5}
+          align="stretch"
+        >
           <GameBoard
             gameState={gameState}
             selection={activeSelection}
@@ -1133,7 +1172,8 @@ function App() {
       overflow="hidden"
       css={{
         "--panel-bg": "rgba(42, 28, 17, 0.84)",
-        "--panel-strong": "linear-gradient(180deg, rgba(72, 51, 31, 0.96) 0%, rgba(24, 15, 10, 0.98) 100%)",
+        "--panel-strong":
+          "linear-gradient(180deg, rgba(72, 51, 31, 0.96) 0%, rgba(24, 15, 10, 0.98) 100%)",
         "--panel-soft": "rgba(244, 232, 208, 0.05)",
         "--button-ghost": "rgba(95, 70, 47, 0.76)",
         "--button-ghost-hover": "rgba(120, 89, 60, 0.86)",
@@ -1177,4 +1217,3 @@ function App() {
 }
 
 export default App;
-
